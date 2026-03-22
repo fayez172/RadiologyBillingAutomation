@@ -1,0 +1,18 @@
+# deps
+node_modules
+npm-debug.log*
+
+# next
+.next
+out
+
+# env
+.env.local
+.env*.local
+
+# misc
+.git
+.agent
+*.md
+explore_db.py
+temp-app

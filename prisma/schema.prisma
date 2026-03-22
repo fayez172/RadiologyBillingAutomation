@@ -1,0 +1,337 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ─────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  BILLING
+}
+
+enum MappingConfidence {
+  EXACT
+  FUZZY
+  MANUAL
+  UNMAPPED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  FINAL
+}
+
+// ─── Users & Auth ──────────────────────────────────
+
+model User {
+  id             String    @id @default(uuid())
+  email          String    @unique
+  password_hash  String
+  name           String
+  role           Role      @default(BILLING)
+  is_active      Boolean   @default(true)
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  audit_logs     AuditLog[]
+  invoices       Invoice[]
+}
+
+// ─── MSSQL Instances ───────────────────────────────
+
+model DbInstance {
+  id                   String    @id @default(uuid())
+  name                 String    @unique
+  ip                   String
+  port                 Int       @default(1433)
+  username             String
+  password_encrypted   String
+  reporting_db         String    @default("RADSpaRISReportingDB")
+  radiology_db         String    @default("RADSpaRISRadiologyDB")
+  is_active            Boolean   @default(true)
+  last_synced_at       DateTime?
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+
+  studies              Study[]
+  upload_jobs          UploadJob[]
+  client_aliases       ClientAlias[]
+  radiologist_aliases  RadiologistAlias[]
+}
+
+// ─── Studies ───────────────────────────────────────
+
+model Study {
+  id                 String             @id @default(uuid())
+  composite_key      String             @unique  // instanceId:WorkflowID
+  instance_id        String
+  workflow_id        String
+  mrn                String?
+  procedure_raw      String?
+  report_dt          DateTime?
+  hospital_name      String?
+  final_rad_name     String?
+  modality           String?
+  image_count        Int?
+  patient_name       String?
+
+  // Mapping results
+  type               String?
+  type_dr            String?
+  mapping_confidence MappingConfidence  @default(UNMAPPED)
+
+  // Duplicate detection
+  is_duplicate       Boolean            @default(false)
+  duplicate_group_id String?
+
+  // Relationships
+  instance           DbInstance         @relation(fields: [instance_id], references: [id])
+  upload_job_id      String?
+  upload_job         UploadJob?         @relation(fields: [upload_job_id], references: [id])
+
+  created_at         DateTime           @default(now())
+  updated_at         DateTime           @updatedAt
+
+  invoice_lines      InvoiceLine[]
+
+  @@index([instance_id])
+  @@index([hospital_name])
+  @@index([final_rad_name])
+  @@index([modality])
+  @@index([mapping_confidence])
+  @@index([is_duplicate])
+  @@index([report_dt])
+  @@index([composite_key])
+}
+
+// ─── Upload Jobs ───────────────────────────────────
+
+model UploadJob {
+  id             String   @id @default(uuid())
+  instance_id    String
+  filename       String
+  status         String   @default("PENDING")  // PENDING, PROCESSING, DONE, ERROR
+  total_rows     Int      @default(0)
+  parsed_rows    Int      @default(0)
+  mapped_rows    Int      @default(0)
+  unmapped_rows  Int      @default(0)
+  duplicate_rows Int      @default(0)
+  error_message  String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  instance       DbInstance @relation(fields: [instance_id], references: [id])
+  studies        Study[]
+
+  @@index([instance_id])
+}
+
+// ─── Mappings ──────────────────────────────────────
+
+model Mapping {
+  id                String   @id @default(uuid())
+  modality          String
+  procedure_pattern String
+  is_regex          Boolean  @default(false)
+  type              String   // Client billing category
+  type_dr           String   // Radiologist billing category
+  priority          Int      @default(0)
+  is_active         Boolean  @default(true)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@unique([modality, procedure_pattern])
+  @@index([modality])
+}
+
+model NormalizationRule {
+  id         String   @id @default(uuid())
+  raw_term   String   @unique
+  normalized String
+  created_at DateTime @default(now())
+}
+
+// ─── Clients & Hospitals ───────────────────────────
+
+model Client {
+  id            String    @id @default(uuid())
+  name          String    @unique
+  contact_email String?
+  contact_phone String?
+  address       String?
+  is_active     Boolean   @default(true)
+  total_billed  Decimal   @default(0) @db.Decimal(14, 2)
+  total_paid    Decimal   @default(0) @db.Decimal(14, 2)
+  current_due   Decimal   @default(0) @db.Decimal(14, 2)
+  last_payment_at DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  aliases       ClientAlias[]
+  prices        ClientPrice[]
+  invoices      Invoice[]
+  payments      Payment[]
+}
+
+model ClientAlias {
+  id          String      @id @default(uuid())
+  client_id   String
+  alias_name  String
+  instance_id String?
+
+  client      Client      @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  instance    DbInstance? @relation(fields: [instance_id], references: [id])
+
+  @@unique([alias_name, instance_id])
+  @@index([alias_name])
+}
+
+model ClientPrice {
+  id             String    @id @default(uuid())
+  client_id      String
+  type           String
+  price          Decimal   @db.Decimal(10, 2)
+  effective_from DateTime
+  effective_to   DateTime?
+  created_at     DateTime  @default(now())
+
+  client         Client    @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@index([client_id, type])
+}
+
+// ─── Radiologists ──────────────────────────────────
+
+model Radiologist {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  email       String?
+  is_active   Boolean   @default(true)
+  total_billed Decimal  @default(0) @db.Decimal(14, 2)
+  total_paid  Decimal   @default(0) @db.Decimal(14, 2)
+  current_due Decimal   @default(0) @db.Decimal(14, 2)
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  aliases     RadiologistAlias[]
+  prices      RadiologistPrice[]
+}
+
+model RadiologistAlias {
+  id              String       @id @default(uuid())
+  radiologist_id  String
+  alias_name      String
+  instance_id     String?
+
+  radiologist     Radiologist  @relation(fields: [radiologist_id], references: [id], onDelete: Cascade)
+  instance        DbInstance?  @relation(fields: [instance_id], references: [id])
+
+  @@unique([alias_name, instance_id])
+  @@index([alias_name])
+}
+
+model RadiologistPrice {
+  id              String    @id @default(uuid())
+  radiologist_id  String
+  type_dr         String
+  price           Decimal   @db.Decimal(10, 2)
+  effective_from  DateTime
+  effective_to    DateTime?
+  created_at      DateTime  @default(now())
+
+  radiologist     Radiologist @relation(fields: [radiologist_id], references: [id], onDelete: Cascade)
+
+  @@index([radiologist_id, type_dr])
+}
+
+// ─── Global Prices (Fallback) ──────────────────────
+
+model GlobalPrice {
+  id             String    @id @default(uuid())
+  type           String    @unique
+  price          Decimal   @db.Decimal(10, 2)
+  effective_from DateTime
+  effective_to   DateTime?
+  created_at     DateTime  @default(now())
+}
+
+// ─── Invoices ──────────────────────────────────────
+
+model Invoice {
+  id             String        @id @default(uuid())
+  invoice_number String        @unique
+  client_id      String
+  period_start   DateTime
+  period_end     DateTime
+  subtotal       Decimal       @default(0) @db.Decimal(14, 2)
+  previous_due   Decimal       @default(0) @db.Decimal(14, 2)
+  total_due      Decimal       @default(0) @db.Decimal(14, 2)
+  status         InvoiceStatus @default(DRAFT)
+  created_by     String
+  finalized_at   DateTime?
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
+
+  client         Client        @relation(fields: [client_id], references: [id])
+  user           User          @relation(fields: [created_by], references: [id])
+  lines          InvoiceLine[]
+
+  @@index([client_id])
+  @@index([status])
+  @@index([period_start, period_end])
+}
+
+model InvoiceLine {
+  id          String  @id @default(uuid())
+  invoice_id  String
+  type        String
+  qty         Int
+  unit_price  Decimal @db.Decimal(10, 2)
+  total       Decimal @db.Decimal(14, 2)
+  study_id    String?
+
+  invoice     Invoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  study       Study?  @relation(fields: [study_id], references: [id])
+
+  @@index([invoice_id])
+}
+
+// ─── Payments (Accounts Receivable) ────────────────
+
+model Payment {
+  id           String   @id @default(uuid())
+  client_id    String
+  amount       Decimal  @db.Decimal(12, 2)
+  payment_date DateTime
+  reference    String?
+  note         String?
+  created_by   String
+  created_at   DateTime @default(now())
+
+  client       Client   @relation(fields: [client_id], references: [id])
+
+  @@index([client_id, payment_date])
+}
+
+// ─── Audit Log ─────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  user_id    String?
+  action     String
+  entity     String
+  entity_id  String?
+  details    String?  // JSON string
+  created_at DateTime @default(now())
+
+  user       User?    @relation(fields: [user_id], references: [id])
+
+  @@index([entity, entity_id])
+  @@index([user_id])
+  @@index([created_at])
+}
