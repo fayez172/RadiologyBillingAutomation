@@ -132,7 +132,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Activity placeholder */}
+      {/* Recent Activity */}
       <div className="glass-card rounded-xl p-6">
         <h2 className="text-lg font-semibold text-foreground mb-4">Recent Activity</h2>
         <div className="flex items-center justify-center py-12 text-muted-foreground">

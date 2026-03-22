@@ -9,11 +9,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Building2, Search, Plus, Mail, Phone, Edit, Trash2, Tag, Loader2, AlertCircle } from 'lucide-react';
+import { Users, Search, Plus, Mail, Edit, Trash2, Tag, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-export default function ClientsPage() {
-  const [clients, setClients] = useState<any[]>([]);
+export default function RadiologistsPage() {
+  const [radiologists, setRadiologists] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   
@@ -24,21 +24,19 @@ export default function ClientsPage() {
   // Form state
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
   const [aliases, setAliases] = useState('');
   const [isActive, setIsActive] = useState(true);
   
   const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
 
-  const fetchClients = async () => {
+  const fetchRadiologists = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/config/clients?search=${encodeURIComponent(search)}`);
+      const res = await fetch(`/api/config/radiologists?search=${encodeURIComponent(search)}`);
       if (res.ok) {
         const data = await res.json();
-        setClients(data.data);
+        setRadiologists(data.data);
       }
     } catch (e) {
       console.error(e);
@@ -48,25 +46,20 @@ export default function ClientsPage() {
   };
 
   useEffect(() => {
-    const delay = setTimeout(fetchClients, 300);
+    const delay = setTimeout(fetchRadiologists, 300);
     return () => clearTimeout(delay);
   }, [search]);
 
-  const handleOpen = (client?: any) => {
-    if (client) {
-      setEditingId(client.id);
-      setName(client.name);
-      setEmail(client.contact_email || '');
-      setPhone(client.contact_phone || '');
-      setAddress(client.address || '');
-      setIsActive(client.is_active);
-      // Aliases handling will be separate or simplified for now
+  const handleOpen = (radiologist?: any) => {
+    if (radiologist) {
+      setEditingId(radiologist.id);
+      setName(radiologist.name);
+      setEmail(radiologist.email || '');
+      setIsActive(radiologist.is_active);
     } else {
       setEditingId(null);
       setName('');
       setEmail('');
-      setPhone('');
-      setAddress('');
       setAliases('');
       setIsActive(true);
     }
@@ -78,9 +71,7 @@ export default function ClientsPage() {
     try {
       const payload: any = {
         name,
-        contact_email: email,
-        contact_phone: phone,
-        address,
+        email,
         is_active: isActive
       };
       
@@ -88,7 +79,7 @@ export default function ClientsPage() {
         payload.aliases = aliases.split(',').map(a => a.trim()).filter(a => a);
       }
 
-      const url = editingId ? `/api/config/clients/${editingId}` : '/api/config/clients';
+      const url = editingId ? `/api/config/radiologists/${editingId}` : '/api/config/radiologists';
       const method = editingId ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
@@ -98,11 +89,11 @@ export default function ClientsPage() {
       });
 
       const data = await res.json();
-      if (!data.success) throw new Error(data.message || 'Failed to save');
+      if (!data.success) throw new Error(data.error?.message || 'Failed to save');
 
-      toast({ title: 'Success', description: 'Client saved successfully.' });
+      toast({ title: 'Success', description: 'Radiologist saved successfully.' });
       setIsOpen(false);
-      fetchClients();
+      fetchRadiologists();
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
@@ -111,15 +102,15 @@ export default function ClientsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this client? This will delete all associated aliases and price tables.')) return;
+    if (!confirm('Are you sure you want to delete this radiologist? This will delete all associated aliases and price tables.')) return;
     
     try {
-      const res = await fetch(`/api/config/clients/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/config/radiologists/${id}`, { method: 'DELETE' });
       const data = await res.json();
-      if (!data.success) throw new Error(data.message);
+      if (!data.success) throw new Error(data.error?.message || 'Failed to delete');
       
-      toast({ title: 'Success', description: 'Client deleted.' });
-      fetchClients();
+      toast({ title: 'Success', description: 'Radiologist deleted.' });
+      fetchRadiologists();
     } catch (err: any) {
       toast({ title: 'Cannot Delete', description: err.message, variant: 'destructive' });
     }
@@ -129,8 +120,8 @@ export default function ClientsPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Clients (Hospitals)</h1>
-          <p className="text-muted-foreground">Manage client billing entities, contact details, and name aliases.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Radiologists</h1>
+          <p className="text-muted-foreground">Manage reporting doctors, their contact details, and name aliases.</p>
         </div>
       </div>
 
@@ -139,7 +130,7 @@ export default function ClientsPage() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input 
             type="search" 
-            placeholder="Search clients..." 
+            placeholder="Search radiologists..." 
             className="pl-8 bg-black/20"
             value={search}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
@@ -150,42 +141,32 @@ export default function ClientsPage() {
           <DialogTrigger
             render={
               <Button onClick={() => handleOpen()} className="bg-teal-600 hover:bg-teal-700 text-white">
-                <Plus className="mr-2 h-4 w-4" /> Add Client
+                <Plus className="mr-2 h-4 w-4" /> Add Radiologist
               </Button>
             }
           />
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
-              <DialogTitle>{editingId ? 'Edit Client' : 'Add New Client'}</DialogTitle>
+              <DialogTitle>{editingId ? 'Edit Radiologist' : 'Add New Radiologist'}</DialogTitle>
               <DialogDescription>
-                {editingId ? 'Update client details.' : 'Create a new canonical client entity.'}
+                {editingId ? 'Update radiologist details.' : 'Create a new canonical radiologist entity.'}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
-                <Label>Client Name *</Label>
-                <Input value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} placeholder="e.g. Popular Diagnostic Centre" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Contact Email</Label>
-                  <Input value={email} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} placeholder="billing@client.com" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Contact Phone</Label>
-                  <Input value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} placeholder="+880..." />
-                </div>
+                <Label>Doctor Name *</Label>
+                <Input value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} placeholder="e.g. Dr. John Doe" />
               </div>
               <div className="space-y-2">
-                <Label>Address</Label>
-                <Input value={address} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddress(e.target.value)} placeholder="Client address..." />
+                <Label>Contact Email</Label>
+                <Input value={email} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} placeholder="doctor@example.com" />
               </div>
               
               {!editingId && (
                 <div className="space-y-2">
                   <Label>Initial Aliases (comma-separated)</Label>
-                  <Input value={aliases} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAliases(e.target.value)} placeholder="Popular Tangail, Popular Diagnostic..." />
-                  <p className="text-xs text-muted-foreground">These raw names from the MSSQL databases will map to this client.</p>
+                  <Input value={aliases} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAliases(e.target.value)} placeholder="John Doe, J. Doe..." />
+                  <p className="text-xs text-muted-foreground">These raw names from the MSSQL databases will map to this doctor.</p>
                 </div>
               )}
 
@@ -203,7 +184,7 @@ export default function ClientsPage() {
               <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
               <Button onClick={handleSave} disabled={submitting || !name.trim()} className="bg-teal-600 hover:bg-teal-700">
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Save Client
+                Save Doctor
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -214,7 +195,7 @@ export default function ClientsPage() {
         <Table>
           <TableHeader>
             <TableRow className="border-border/50 hover:bg-transparent">
-              <TableHead>Client Name</TableHead>
+              <TableHead>Doctor Name</TableHead>
               <TableHead>Contact</TableHead>
               <TableHead>Ledger</TableHead>
               <TableHead>Aliases</TableHead>
@@ -227,40 +208,38 @@ export default function ClientsPage() {
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                   <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-                  Loading clients...
+                  Loading radiologists...
                 </TableCell>
               </TableRow>
-            ) : clients.length === 0 ? (
+            ) : radiologists.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  <Building2 className="h-8 w-8 mx-auto mb-3 opacity-20" />
-                  No clients found. Add one to get started.
+                  <Users className="h-8 w-8 mx-auto mb-3 opacity-20" />
+                  No doctors found. Add one to get started.
                 </TableCell>
               </TableRow>
             ) : (
-              clients.map((client) => (
-                <TableRow key={client.id} className="border-border/50">
-                  <TableCell className="font-medium">{client.name}</TableCell>
+              radiologists.map((rad) => (
+                <TableRow key={rad.id} className="border-border/50">
+                  <TableCell className="font-medium">{rad.name}</TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-                      {client.contact_email && <span className="flex items-center"><Mail className="h-3 w-3 mr-1" /> {client.contact_email}</span>}
-                      {client.contact_phone && <span className="flex items-center"><Phone className="h-3 w-3 mr-1" /> {client.contact_phone}</span>}
-                      {!client.contact_email && !client.contact_phone && <span className="italic opacity-50">No contact provided</span>}
+                      {rad.email ? <span className="flex items-center"><Mail className="h-3 w-3 mr-1" /> {rad.email}</span> : <span className="italic opacity-50">No email</span>}
                     </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col text-sm">
-                      <span className="text-green-500 font-medium">৳{Number(client.total_paid).toLocaleString()} Paid</span>
-                      <span className="text-red-400 font-medium">৳{Number(client.current_due).toLocaleString()} Due</span>
+                      <span className="text-green-500 font-medium">৳{Number(rad.total_paid).toLocaleString()} Paid</span>
+                      <span className="text-red-400 font-medium">৳{Number(rad.current_due).toLocaleString()} Due</span>
                     </div>
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="bg-secondary/50">
-                      <Tag className="h-3 w-3 mr-1" /> {client._count?.aliases || 0}
+                      <Tag className="h-3 w-3 mr-1" /> {rad._count?.aliases || 0}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {client.is_active ? (
+                    {rad.is_active ? (
                       <Badge className="bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20">Active</Badge>
                     ) : (
                       <Badge variant="outline" className="text-muted-foreground">Inactive</Badge>
@@ -268,10 +247,10 @@ export default function ClientsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => handleOpen(client)}>
+                      <Button variant="ghost" size="icon" onClick={() => handleOpen(rad)}>
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-red-400 hover:text-red-300 hover:bg-red-950/30" onClick={() => handleDelete(client.id)}>
+                      <Button variant="ghost" size="icon" className="text-red-400 hover:text-red-300 hover:bg-red-950/30" onClick={() => handleDelete(rad.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>

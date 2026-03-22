@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Search, Plus, Trash2, Edit2, Check, X, CheckSquare, Square } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Search, Plus, Trash2, Edit2, Check, X, CheckSquare, Square, Upload, Loader2 } from 'lucide-react';
 
 interface Mapping {
   id: string;
@@ -24,6 +24,34 @@ export default function MappingsPage() {
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMap, setEditMap] = useState<Partial<Mapping>>({});
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/config/mappings/import', { method: 'POST', body: formData });
+      const json = await res.json();
+      if (res.ok) {
+        setImportResult(json.data);
+        fetchMappings();
+      } else {
+        alert(json.error?.message || 'Import failed');
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const fetchMappings = async () => {
     try {
@@ -109,10 +137,38 @@ export default function MappingsPage() {
             Map normalized Procedure & Modality strings to internal billing Types. Evaluated top-to-bottom.
           </p>
         </div>
-        <button onClick={() => setIsAdding(true)} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Add Mapping
-        </button>
+        <div className="flex items-center gap-2">
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImportExcel} />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-500/50 bg-emerald-950/20 text-emerald-400 text-sm font-medium hover:bg-emerald-900/40 transition-colors disabled:opacity-50"
+          >
+            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            Import Excel
+          </button>
+          <button onClick={() => setIsAdding(true)} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Add Mapping
+          </button>
+        </div>
       </div>
+
+      {importResult && (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-950/20 p-4 text-sm">
+          <p className="font-semibold text-emerald-400 mb-1">Import Complete</p>
+          <p className="text-muted-foreground">
+            <span className="text-foreground font-medium">{importResult.imported}</span> imported,{' '}
+            <span className="text-foreground font-medium">{importResult.skipped}</span> skipped out of{' '}
+            <span className="text-foreground font-medium">{importResult.total}</span> rows.
+          </p>
+          {importResult.errors?.length > 0 && (
+            <div className="mt-2 text-xs text-red-400">
+              {importResult.errors.map((e: string, i: number) => <p key={i}>{e}</p>)}
+            </div>
+          )}
+          <button onClick={() => setImportResult(null)} className="mt-2 text-xs text-muted-foreground hover:text-foreground underline">Dismiss</button>
+        </div>
+      )}
 
       <div className="glass-panel overflow-hidden">
         <div className="p-4 border-b border-white/10 flex gap-4">
