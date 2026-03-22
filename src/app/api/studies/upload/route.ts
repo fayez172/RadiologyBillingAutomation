@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { mapUnmappedStudies } from '@/lib/mapping-engine';
 import { prisma } from '@/lib/prisma';
 import { error, success } from '@/lib/api-response';
 import * as xlsx from 'xlsx';
@@ -213,6 +214,11 @@ export async function POST(req: Request) {
         duplicate_rows: duplicateFlaggedCount
       }
     });
+
+    // Fire off mapping engine mapping asynchronously
+    if (newCount > 0) {
+      mapUnmappedStudies(instanceId).catch(err => console.error('[MAPPING BG] Upload trigger failed', err));
+    }
 
     return success({
       total_rows: dataRows.length,

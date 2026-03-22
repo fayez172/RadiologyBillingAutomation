@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { getDbPool } from '@/lib/mssql';
+import { mapUnmappedStudies } from '@/lib/mapping-engine';
 
 export async function syncReferenceData(instanceId: string) {
   const instance = await prisma.dbInstance.findUnique({ where: { id: instanceId } });
@@ -185,7 +186,7 @@ export async function syncStudies(instanceId: string) {
     for (let i = 0; i < studies.length; i += BATCH_SIZE) {
       const batch = studies.slice(i, i + BATCH_SIZE);
       
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         for (const row of batch) {
           if (!row.WorkflowID) continue;
           
@@ -257,6 +258,11 @@ export async function syncStudies(instanceId: string) {
       where: { id: instanceId },
       data: { last_synced_at: dateTo }
     });
+
+    // Fire off mapping engine if new studies arrived
+    if (newCount > 0) {
+      mapUnmappedStudies(instanceId).catch((err: any) => console.error('[MAPPING BG] Sync trigger failed', err));
+    }
 
     return { 
       success: true, 
