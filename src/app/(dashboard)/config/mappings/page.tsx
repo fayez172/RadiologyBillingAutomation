@@ -25,9 +25,22 @@ export default function MappingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMap, setEditMap] = useState<Partial<Mapping>>({});
 
+  const [billingTypes, setBillingTypes] = useState<any[]>([]);
+  const [modalities, setModalities] = useState<any[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+
+  const fetchBillingTypes = async () => {
+    try {
+      const res = await fetch('/api/config/billing-types');
+      const data = await res.json();
+      if (res.ok) setBillingTypes(data);
+    } catch (err) {
+      console.error('Failed to fetch billing types', err);
+    }
+  };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -64,6 +77,11 @@ export default function MappingsPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchBillingTypes();
+    fetch('/api/reference/modalities').then(r => r.json()).then(data => setModalities(data || []));
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => fetchMappings(), 300);
@@ -126,6 +144,34 @@ export default function MappingsPage() {
     } catch (err: any) {
       alert(err.message);
     }
+  };
+
+  const TypeDropdown = ({ value, onChange, placeholder }: { value: string, onChange: (val: string) => void, placeholder: string }) => {
+    const isCustom = value && !billingTypes.find(t => t.name === value);
+    
+    return (
+      <div className="flex flex-col gap-1">
+        <select 
+          className="w-full bg-background border px-2 py-1 rounded text-sm outline-none focus:ring-1 focus:ring-primary"
+          value={isCustom ? "CUSTOM" : (value || "")}
+          onChange={(e) => {
+            if (e.target.value === "CUSTOM") {
+              const val = prompt("Enter custom type (e.g. TypeA+TypeB or TypeA*2):", value);
+              if (val) onChange(val);
+            } else {
+              onChange(e.target.value);
+            }
+          }}
+        >
+          <option value="">{placeholder}</option>
+          {billingTypes.map(t => (
+            <option key={t.id} value={t.name}>{t.display_name}</option>
+          ))}
+          <option value="CUSTOM">➕ Other / Manual...</option>
+        </select>
+        {isCustom && <div className="text-[10px] text-blue-400 font-mono pl-1">{value}</div>}
+      </div>
+    );
   };
 
   return (
@@ -191,10 +237,10 @@ export default function MappingsPage() {
                 <th className="px-4 py-3 font-medium">Active</th>
                 <th className="px-4 py-3 font-medium">Modality</th>
                 <th className="px-4 py-3 font-medium">Procedure Pattern</th>
-                <th className="px-4 py-3 font-medium text-center">Is Regex</th>
+                <th className="px-4 py-3 font-medium text-center">Regex</th>
                 <th className="px-4 py-3 font-medium">Type (Client)</th>
-                <th className="px-4 py-3 font-medium">Type (Radiologist)</th>
-                <th className="px-4 py-3 font-medium w-20">Priority</th>
+                <th className="px-4 py-3 font-medium">Type (Rad)</th>
+                <th className="px-4 py-3 font-medium text-center">Priority</th>
                 <th className="px-4 py-3 font-medium text-right w-24">Actions</th>
               </tr>
             </thead>
@@ -203,7 +249,17 @@ export default function MappingsPage() {
                 <tr className="bg-primary/5">
                   <td className="px-4 py-3 text-center">-</td>
                   <td className="px-2 py-2">
-                    <input autoFocus placeholder="e.g. CT" className="w-full bg-background border px-2 py-1 rounded text-sm" value={newMap.modality || ''} onChange={e => setNewMap({...newMap, modality: e.target.value})} />
+                    <select 
+                      autoFocus 
+                      className="w-full bg-background border px-2 py-1 rounded text-sm outline-none focus:ring-1 focus:ring-primary" 
+                      value={newMap.modality || ''} 
+                      onChange={e => setNewMap({...newMap, modality: e.target.value})}
+                    >
+                      <option value="">Select Modality</option>
+                      {modalities.map(mod => (
+                        <option key={mod.id} value={mod.id}>{mod.name} ({mod.id})</option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-2 py-2">
                     <input placeholder="e.g. ^CT BRAIN.*" className="w-full bg-background border px-2 py-1 rounded text-sm font-mono" value={newMap.procedure_pattern || ''} onChange={e => setNewMap({...newMap, procedure_pattern: e.target.value})} />
@@ -212,10 +268,18 @@ export default function MappingsPage() {
                     <input type="checkbox" checked={newMap.is_regex || false} onChange={e => setNewMap({...newMap, is_regex: e.target.checked})} className="rounded cursor-pointer" />
                   </td>
                   <td className="px-2 py-2">
-                    <input placeholder="Billing Type" className="w-full bg-background border px-2 py-1 rounded text-sm" value={newMap.type || ''} onChange={e => setNewMap({...newMap, type: e.target.value})} />
+                    <TypeDropdown 
+                      value={newMap.type || ''} 
+                      onChange={val => setNewMap({...newMap, type: val})}
+                      placeholder="Select type"
+                    />
                   </td>
                   <td className="px-2 py-2">
-                    <input placeholder="Rad Type" className="w-full bg-background border px-2 py-1 rounded text-sm" value={newMap.type_dr || ''} onChange={e => setNewMap({...newMap, type_dr: e.target.value})} />
+                    <TypeDropdown 
+                      value={newMap.type_dr || ''} 
+                      onChange={val => setNewMap({...newMap, type_dr: val})}
+                      placeholder="Select rad type"
+                    />
                   </td>
                   <td className="px-2 py-2">
                     <input type="number" className="w-full bg-background border px-2 py-1 rounded text-sm" value={newMap.priority || 0} onChange={e => setNewMap({...newMap, priority: parseInt(e.target.value)})} />
@@ -241,7 +305,16 @@ export default function MappingsPage() {
                     </td>
                     <td className="px-4 py-3 font-medium">
                       {editingId === m.id ? 
-                        <input className="w-full bg-background border px-2 py-1 rounded text-sm" value={editMap.modality || ''} onChange={e => setEditMap({...editMap, modality: e.target.value})} /> 
+                        <select 
+                          className="w-full bg-background border px-2 py-1 rounded text-sm outline-none focus:ring-1 focus:ring-primary" 
+                          value={editMap.modality || ''} 
+                          onChange={e => setEditMap({...editMap, modality: e.target.value})}
+                        >
+                          <option value="">Select Modality</option>
+                          {modalities.map(mod => (
+                            <option key={mod.id} value={mod.id}>{mod.name} ({mod.id})</option>
+                          ))}
+                        </select>
                         : m.modality}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-secondary-foreground">
@@ -256,15 +329,27 @@ export default function MappingsPage() {
                     </td>
                     <td className="px-4 py-3">
                       {editingId === m.id ? 
-                        <input className="w-full bg-background border px-2 py-1 rounded text-sm" value={editMap.type || ''} onChange={e => setEditMap({...editMap, type: e.target.value})} /> 
-                        : <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs">{m.type}</span>}
+                        <TypeDropdown 
+                          value={editMap.type || ''} 
+                          onChange={val => setEditMap({...editMap, type: val})}
+                          placeholder="Select type"
+                        />
+                        : <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs">
+                            {billingTypes.find(t => t.name === m.type)?.display_name || m.type}
+                          </span>}
                     </td>
                     <td className="px-4 py-3">
                       {editingId === m.id ? 
-                        <input className="w-full bg-background border px-2 py-1 rounded text-sm" value={editMap.type_dr || ''} onChange={e => setEditMap({...editMap, type_dr: e.target.value})} /> 
-                        : <span className="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded text-xs">{m.type_dr}</span>}
+                        <TypeDropdown 
+                          value={editMap.type_dr || ''} 
+                          onChange={val => setEditMap({...editMap, type_dr: val})}
+                          placeholder="Select rad type"
+                        />
+                        : <span className="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded text-xs">
+                            {billingTypes.find(t => t.name === m.type_dr)?.display_name || m.type_dr}
+                          </span>}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 text-center text-xs">
                       {editingId === m.id ? 
                         <input type="number" className="w-full bg-background border px-2 py-1 rounded text-sm" value={editMap.priority || 0} onChange={e => setEditMap({...editMap, priority: parseInt(e.target.value)})} /> 
                         : m.priority}

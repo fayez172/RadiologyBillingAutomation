@@ -21,6 +21,33 @@ export interface InvoiceDraft {
 }
 
 /**
+ * Expands a study type string into individual billing units.
+ * "MRI_Angiogram*2" -> ["MRI_Angiogram", "MRI_Angiogram"]
+ * "CT_Angiogram+CT_Scan_Brain" -> ["CT_Angiogram", "CT_Scan_Brain"]
+ */
+export function expandStudyTypes(typeStr: string): string[] {
+  if (!typeStr) return [];
+  
+  // Split by '+' first
+  const parts = typeStr.split('+').map(p => p.trim());
+  const finalTypes: string[] = [];
+  
+  for (const part of parts) {
+    if (part.includes('*')) {
+      const [type, countStr] = part.split('*');
+      const count = parseInt(countStr) || 1;
+      for (let i = 0; i < count; i++) {
+        finalTypes.push(type.trim());
+      }
+    } else {
+      finalTypes.push(part);
+    }
+  }
+  
+  return finalTypes;
+}
+
+/**
  * Builds an Invoice Draft for a given client and date range.
  * This does NOT save to the database. It generates the data needed for the preview UI.
  */
@@ -31,6 +58,12 @@ export async function buildInvoiceDraft(clientId: string, periodStart: Date, per
   });
 
   if (!client) throw new Error('Client not found');
+
+  // Fetch all active billing types for display name resolution and default pricing
+  const billingTypes = await prisma.billingType.findMany({
+    where: { is_active: true }
+  });
+  const typeMap = new Map<string, any>(billingTypes.map((t: any) => [t.name, t]));
 
   // Collect all acceptable hospital_name strings for this client
   const validNames = [client.name, ...client.aliases.map((a: any) => a.alias_name)];
@@ -52,30 +85,46 @@ export async function buildInvoiceDraft(clientId: string, periodStart: Date, per
     }
   });
 
-  // Group by study type
+  // Group by study type, expanding multi-unit types
   const grouped = new Map<string, { qty: number; study_ids: string[] }>();
+  
   for (const study of studies) {
-    if (!study.type) continue; // safety check
+    if (!study.type) continue;
     
-    if (!grouped.has(study.type)) {
-      grouped.set(study.type, { qty: 0, study_ids: [] });
+    const expanded = expandStudyTypes(study.type);
+    for (const rawType of expanded) {
+      // Use display_name if available, otherwise fallback to the raw type name
+      const bType = typeMap.get(rawType);
+      const displayName = bType ? bType.display_name : rawType;
+      
+      if (!grouped.has(displayName)) {
+        grouped.set(displayName, { qty: 0, study_ids: [] });
+      }
+      const group = grouped.get(displayName)!;
+      group.qty += 1;
+      // Note: We associate the study ID once, but it might contribute multiple units to different display categories
+      if (!group.study_ids.includes(study.id)) {
+        group.study_ids.push(study.id);
+      }
     }
-    const group = grouped.get(study.type)!;
-    group.qty += 1;
-    group.study_ids.push(study.id);
   }
 
   // Build the invoice lines and calculate pricing
   const lines: InvoiceLineDraft[] = [];
   let subtotal = 0;
 
-  for (const [type, data] of Array.from(grouped.entries())) {
+  for (const [displayName, data] of Array.from(grouped.entries())) {
+    // We need the internal 'name' for price lookup. 
+    // If displayName was matched from BillingType, we use that name.
+    const bType = billingTypes.find((t: any) => t.display_name === displayName || t.name === displayName);
+    const lookupKey = bType ? bType.name : displayName;
+
     // Determine the price using the billing utility based on the period end date
-    const unitPrice = await getClientPrice(clientId, type, periodEnd);
+    const unitPrice = await getClientPrice(clientId, lookupKey, periodEnd);
     const lineTotal = data.qty * unitPrice;
 
     lines.push({
-      type,
+      type: displayName,
       qty: data.qty,
       unit_price: unitPrice,
       total: lineTotal,
@@ -85,11 +134,10 @@ export async function buildInvoiceDraft(clientId: string, periodStart: Date, per
     subtotal += lineTotal;
   }
 
-  // Sort lines alphabetically by type
+  // Sort lines alphabetically
   lines.sort((a, b) => a.type.localeCompare(b.type));
 
-  // Accounts Receivable: current_due is what they owe BEFORE this invoice.
-  // We use client.current_due as the "previous_due" for the new invoice.
+  // Accounts Receivable
   const previousDue = Number(client.current_due);
   const totalDue = subtotal + previousDue;
 

@@ -8,61 +8,121 @@ export async function syncReferenceData(instanceId: string) {
 
   const pool = await getDbPool(instance);
   const radDb = instance.radiology_db;
+  
+  // Parse owner IDs safely, fallback to [3] if invalid or empty
+  let ownerIds = [3];
+  try {
+    const parsed = JSON.parse(instance.owner_ids);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      ownerIds = parsed;
+    }
+  } catch (e) {
+    console.warn(`[SYNC-REF] Invalid owner_ids format for instance ${instance.name}. Defaulting to [3].`);
+  }
+  const ownerIdsStr = ownerIds.join(',');
 
   try {
     // 1. Sync Modalities
     const mods = await pool.request().query(`
-      SELECT ID, DisplayName, Code 
+      SELECT ID, Code, DisplayName, AlternateNames, OwnerID, Active 
       FROM [${radDb}].dbo.Modality 
-      WHERE Active = 1
+      WHERE OwnerID IN (${ownerIdsStr})
     `);
     
-    // We update reference aliases for modalities directly as normalization rules
-    // (In production, you'd map these to the NormalizationRule table)
-
-    // 2. Sync StudySources (Hospitals)
-    const sources = await pool.request().query(`
-      SELECT ID, Name 
-      FROM [${radDb}].dbo.StudySource 
-      WHERE Active = 1
-    `);
-    
-    // Auto-create client aliases for new unseen hospitals
-    for (const row of sources.recordset) {
-      if (!row.Name) continue;
-      const rawName = String(row.Name).trim();
-      
-      // Look up alias
-      const existingAlias = await prisma.clientAlias.findFirst({
-        where: { alias_name: rawName, instance_id: instanceId }
+    for (const row of mods.recordset) {
+      await prisma.remoteModality.upsert({
+        where: {
+          remote_id_instance_id: { remote_id: Number(row.ID), instance_id: instanceId }
+        },
+        update: {
+          code: row.Code, display_name: row.DisplayName, alt_names: row.AlternateNames, 
+          owner_id: Number(row.OwnerID), is_active: row.Active
+        },
+        create: {
+          remote_id: Number(row.ID), instance_id: instanceId,
+          code: row.Code, display_name: row.DisplayName, alt_names: row.AlternateNames, 
+          owner_id: Number(row.OwnerID), is_active: row.Active
+        }
       });
-
-      if (!existingAlias) {
-        // If exact name matches a Client, map it automatically
-        let client = await prisma.client.findUnique({ where: { name: rawName } });
-        
-        if (!client) {
-          // Check global alias
-          const globalAlias = await prisma.clientAlias.findFirst({ where: { alias_name: rawName, instance_id: null }});
-          if (globalAlias) {
-            client = await prisma.client.findUnique({ where: { id: globalAlias.client_id }});
-          }
-        }
-
-        // If a client exists, create the local instance alias
-        if (client) {
-          await prisma.clientAlias.create({
-            data: { client_id: client.id, alias_name: rawName, instance_id: instanceId }
-          });
-        }
-      }
     }
 
-    // 3. Sync Radiologists
+    // 2. Sync Procedures
+    const procs = await pool.request().query(`
+      SELECT ID, Name, ProcedureCode, ParentModalityID, OwnerID, Active
+      FROM [${radDb}].dbo.[Procedure]
+      WHERE OwnerID IN (${ownerIdsStr})
+    `);
+
+    for (const row of procs.recordset) {
+      const parentMod = row.ParentModalityID ? await prisma.remoteModality.findUnique({
+        where: { remote_id_instance_id: { remote_id: Number(row.ParentModalityID), instance_id: instanceId } }
+      }) : null;
+
+      await prisma.remoteProcedure.upsert({
+        where: {
+          remote_id_instance_id: { remote_id: Number(row.ID), instance_id: instanceId }
+        },
+        update: {
+          name: row.Name, procedure_code: row.ProcedureCode, 
+          parent_modality_id: parentMod?.id, owner_id: Number(row.OwnerID), is_active: row.Active
+        },
+        create: {
+          remote_id: Number(row.ID), instance_id: instanceId,
+          name: row.Name, procedure_code: row.ProcedureCode, 
+          parent_modality_id: parentMod?.id, owner_id: Number(row.OwnerID), is_active: row.Active
+        }
+      });
+    }
+
+    // 3. Sync Study Sources & Auto-merge to Client
+    const studySources = await pool.request().query(`
+      SELECT ID, Name, OwnerID, Active 
+      FROM [${radDb}].dbo.StudySource 
+      WHERE OwnerID IN (${ownerIdsStr})
+    `);
+    
+    for (const row of studySources.recordset) {
+      const rawName = row.Name?.trim();
+      if (!rawName) continue;
+
+      let clientAlias = await prisma.clientAlias.findUnique({
+        where: { alias_name_instance_id: { alias_name: rawName, instance_id: instanceId } }
+      });
+
+      let clientId = clientAlias?.client_id;
+
+      if (!clientAlias) {
+        let client = await prisma.client.findUnique({ where: { name: rawName } });
+        if (!client) {
+          client = await prisma.client.create({ data: { name: rawName, is_active: true } });
+          console.log(`[SYNC-REF] Created new Client: ${rawName}`);
+        }
+        clientId = client.id;
+        clientAlias = await prisma.clientAlias.create({
+          data: { client_id: clientId, alias_name: rawName, instance_id: instanceId, remote_id: Number(row.ID) }
+        });
+      } else if (!clientAlias.remote_id) {
+        await prisma.clientAlias.update({
+          where: { id: clientAlias.id },
+          data: { remote_id: Number(row.ID) }
+        });
+      }
+
+      await prisma.remoteStudySource.upsert({
+        where: { remote_id_instance_id: { remote_id: Number(row.ID), instance_id: instanceId } },
+        update: { name: rawName, owner_id: Number(row.OwnerID), is_active: row.Active, client_id: clientId },
+        create: {
+          remote_id: Number(row.ID), instance_id: instanceId,
+          name: rawName, owner_id: Number(row.OwnerID), is_active: row.Active, client_id: clientId
+        }
+      });
+    }
+
+    // 4. Sync Radiologists & Auto-merge
     const rads = await pool.request().query(`
-      SELECT ID, DisplayName, FirstName, MiddleName, LastName 
+      SELECT ID, DisplayName, FirstName, MiddleName, LastName, OwnerID, Active
       FROM [${radDb}].dbo.Radiologist 
-      WHERE Active = 1
+      WHERE OwnerID IN (${ownerIdsStr})
     `);
     
     for (const row of rads.recordset) {
@@ -72,26 +132,40 @@ export async function syncReferenceData(instanceId: string) {
       
       if (!displayName) continue;
 
-      const existingAlias = await prisma.radiologistAlias.findFirst({
-        where: { alias_name: displayName, instance_id: instanceId }
+      let radAlias = await prisma.radiologistAlias.findUnique({
+        where: { alias_name_instance_id: { alias_name: displayName, instance_id: instanceId } }
       });
 
-      if (!existingAlias) {
+      if (!radAlias) {
         let rad = await prisma.radiologist.findUnique({ where: { name: displayName } });
-        
         if (!rad) {
-          const globalAlias = await prisma.radiologistAlias.findFirst({ where: { alias_name: displayName, instance_id: null }});
-          if (globalAlias) {
-            rad = await prisma.radiologist.findUnique({ where: { id: globalAlias.radiologist_id }});
-          }
+          rad = await prisma.radiologist.create({ data: { name: displayName, is_active: true } });
+          console.log(`[SYNC-REF] Created new Radiologist: ${displayName}`);
         }
-
-        if (rad) {
-          await prisma.radiologistAlias.create({
-            data: { radiologist_id: rad.id, alias_name: displayName, instance_id: instanceId }
-          });
-        }
+        radAlias = await prisma.radiologistAlias.create({
+          data: { radiologist_id: rad.id, alias_name: displayName, instance_id: instanceId, remote_id: Number(row.ID) }
+        });
+      } else if (!radAlias.remote_id) {
+        await prisma.radiologistAlias.update({
+          where: { id: radAlias.id },
+          data: { remote_id: Number(row.ID) }
+        });
       }
+
+      await prisma.remoteRadiologist.upsert({
+        where: { remote_id_instance_id: { remote_id: Number(row.ID), instance_id: instanceId } },
+        update: { 
+          display_name: displayName, 
+          first_name: row.FirstName, middle_name: row.MiddleName, last_name: row.LastName,
+          owner_id: Number(row.OwnerID), is_active: row.Active, radiologist_id: radAlias.radiologist_id 
+        },
+        create: {
+          remote_id: Number(row.ID), instance_id: instanceId,
+          display_name: displayName, 
+          first_name: row.FirstName, middle_name: row.MiddleName, last_name: row.LastName,
+          owner_id: Number(row.OwnerID), is_active: row.Active, radiologist_id: radAlias.radiologist_id
+        }
+      });
     }
 
     return { success: true };
@@ -127,18 +201,18 @@ export async function checkNewStudiesCount(instanceId: string): Promise<number> 
   }
 }
 
-export async function syncStudies(instanceId: string) {
+export async function syncStudies(instanceId: string, customDateFrom?: Date, customDateTo?: Date) {
   const instance = await prisma.dbInstance.findUnique({ where: { id: instanceId } });
   if (!instance) throw new Error('Instance not found');
 
   const pool = await getDbPool(instance);
   
-  // Set incremental date frame
-  const dateFrom = instance.last_synced_at 
+  // Set incremental date frame or use custom range
+  const dateFrom = customDateFrom || (instance.last_synced_at 
     ? new Date(instance.last_synced_at) 
-    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days ago if never synced
+    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)); // 30 days ago if never synced
   
-  const dateTo = new Date(); // now
+  const dateTo = customDateTo || new Date(); // now
 
   const repDb = instance.reporting_db;
   const radDb = instance.radiology_db;
@@ -148,6 +222,13 @@ export async function syncStudies(instanceId: string) {
         fr.WorkflowID,
         fr.PatientMRNumber           AS MRN,
         pr.Name                      AS ProcedureName,
+        pr.ID                        AS ForProcedureID,
+        fr.ForModalityID,
+        fr.StudySourceID,
+        fr.ReportedByUserID,
+        fr.Add1Read1RadiologistID,
+        fr.Add2Read1RadiologistID,
+        fr.Add3Read1RadiologistID,
         fr.ReportCompletedTime AT TIME ZONE 'UTC'
                            AT TIME ZONE 'Bangladesh Standard Time' AS ReportCompletedTime_BDT,
         ss.Name                      AS HospitalName,
@@ -181,8 +262,7 @@ export async function syncStudies(instanceId: string) {
     let newCount = 0;
     let updatedCount = 0;
 
-    // Batch process to avoid massive transaction locks
-    const BATCH_SIZE = 500;
+    const BATCH_SIZE = 100;
     for (let i = 0; i < studies.length; i += BATCH_SIZE) {
       const batch = studies.slice(i, i + BATCH_SIZE);
       
@@ -193,33 +273,59 @@ export async function syncStudies(instanceId: string) {
           const compositeKey = `${instanceId}:${row.WorkflowID}`;
           const currentStudy = await tx.study.findUnique({ where: { id: compositeKey } });
           
+          // Addendum Logic: Add3 > Add2 > Add1 > ReportedBy
+          const finalRadRemoteId = Number(row.Add3Read1RadiologistID 
+            ?? row.Add2Read1RadiologistID 
+            ?? row.Add1Read1RadiologistID 
+            ?? row.ReportedByUserID);
+
+          const reportedByRemoteId = Number(row.ReportedByUserID);
+
+          // Resolve final radiologist name
+          let finalRadName = row.Radiologist || "Unknown";
+          if (finalRadRemoteId && finalRadRemoteId !== reportedByRemoteId) {
+            const radAlias = await tx.radiologistAlias.findFirst({
+              where: { remote_id: finalRadRemoteId, instance_id: instanceId }
+            });
+            if (radAlias) {
+              finalRadName = radAlias.alias_name;
+            } else {
+              // Fallback if not synced
+              finalRadName = `Unknown Rad (ID: ${finalRadRemoteId})`;
+            }
+          }
+
           const data = {
             instance_id: instanceId,
             workflow_id: row.WorkflowID.toString(),
             composite_key: compositeKey,
-            patient_mrn: row.MRN,
+            mrn: row.MRN,
             patient_name: row.PatientName,
-            procedure_name: row.ProcedureName,
+            procedure_raw: row.ProcedureName,
             hospital_name: row.HospitalName,
-            radiologist_name: row.Radiologist,
+            final_rad_name: finalRadName,
             modality: row.Modality,
             image_count: row.ImageCount || 0,
-            report_completed_at: new Date(row.ReportCompletedTime_BDT),
-            source_type: 'MSSQL',
-            normalized_hospital: null,
-            normalized_radiologist: null,
-            normalized_procedure: null,
+            report_dt: new Date(row.ReportCompletedTime_BDT + " +06:00"),
+
+            // Remote IDs for tracking (Number(..) casting for Prisma Int compatibility)
+            reported_by_remote_id: reportedByRemoteId,
+            add1_rad_remote_id: row.Add1Read1RadiologistID ? Number(row.Add1Read1RadiologistID) : null,
+            add2_rad_remote_id: row.Add2Read1RadiologistID ? Number(row.Add2Read1RadiologistID) : null,
+            add3_rad_remote_id: row.Add3Read1RadiologistID ? Number(row.Add3Read1RadiologistID) : null,
+            final_rad_remote_id: finalRadRemoteId,
+            procedure_remote_id: row.ForProcedureID ? Number(row.ForProcedureID) : null,
+            modality_remote_id: row.ForModalityID ? Number(row.ForModalityID) : null,
+            study_source_remote_id: row.StudySourceID ? Number(row.StudySourceID) : null,
           };
 
           if (!currentStudy) {
-            // Basic duplicate flag by same exact details
             const potentialDup = await tx.study.findFirst({
               where: {
                 patient_name: row.PatientName,
                 hospital_name: row.HospitalName,
                 procedure_raw: row.ProcedureName,
                 modality: row.Modality,
-                // exclude self
                 id: { not: compositeKey }
               }
             });
@@ -234,7 +340,6 @@ export async function syncStudies(instanceId: string) {
             });
             newCount++;
 
-            // Update the potential dup to also point to the group
             if (potentialDup && !potentialDup.duplicate_group_id) {
               await tx.study.update({
                 where: { id: potentialDup.id },
@@ -250,16 +355,17 @@ export async function syncStudies(instanceId: string) {
             updatedCount++;
           }
         }
+      }, { timeout: 30000 });
+    }
+
+    const isFullSync = !customDateFrom && !customDateTo;
+    if (isFullSync) {
+      await prisma.dbInstance.update({
+        where: { id: instanceId },
+        data: { last_synced_at: dateTo }
       });
     }
 
-    // Update instance last_synced_at
-    await prisma.dbInstance.update({
-      where: { id: instanceId },
-      data: { last_synced_at: dateTo }
-    });
-
-    // Fire off mapping engine if new studies arrived
     if (newCount > 0) {
       mapUnmappedStudies(instanceId).catch((err: any) => console.error('[MAPPING BG] Sync trigger failed', err));
     }

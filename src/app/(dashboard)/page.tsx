@@ -1,149 +1,243 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
+import { 
+  Card, CardContent, CardDescription, CardHeader, CardTitle 
+} from '@/components/ui/card';
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, 
+  Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar 
+} from 'recharts';
+import { 
+  Loader2, TrendingUp, Users, Activity, FileText, 
+  Upload, Database, Plus, Search, CheckCircle
+} from 'lucide-react';
+import { format } from 'date-fns';
 
-function StatCard({
-  title,
-  value,
-  subtitle,
-  icon,
-  gradient,
-}: {
-  title: string;
-  value: string;
-  subtitle: string;
-  icon: React.ReactNode;
-  gradient: string;
+function QuickAction({ 
+  title, 
+  subtitle, 
+  href, 
+  icon: Icon, 
+  colorClass 
+}: { 
+  title: string; 
+  subtitle: string; 
+  href: string; 
+  icon: any; 
+  colorClass: string;
 }) {
   return (
-    <div className="glass-card rounded-xl p-5 hover:glow-teal transition-all duration-300 group">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="text-2xl font-bold text-foreground mt-1">{value}</p>
-          <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
-        </div>
-        <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-br ${gradient} group-hover:scale-110 transition-transform`}
-        >
-          {icon}
-        </div>
+    <Link href={href} className="glass-card rounded-xl p-5 text-left hover:border-primary/30 transition-all group">
+      <div className={`w-10 h-10 rounded-lg ${colorClass} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
+        <Icon className="w-5 h-5" />
       </div>
-    </div>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+    </Link>
   );
 }
 
 export default function DashboardPage() {
   const { data: session } = useSession();
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch('/api/dashboard/stats');
+        if (res.ok) setStats((await res.json()).data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStats();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[70vh]">
+        <Loader2 className="h-10 w-10 animate-spin text-teal-500" />
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <div className="p-12 text-center bg-destructive/5 rounded-xl border border-destructive/20 max-w-2xl mx-auto mt-12">
+        <Activity className="w-12 h-12 text-destructive mx-auto mb-4 opacity-50" />
+        <h2 className="text-lg font-bold text-destructive">Dashboard Connection Failed</h2>
+        <p className="text-muted-foreground text-sm mt-2">Could not load financial metrics. Please check your database connection.</p>
+      </div>
+    );
+  }
+
+  const { summary, topClients, revenueTrend } = stats;
 
   return (
-    <div className="animate-fade-in space-y-6">
-      {/* Header */}
+    <div className="space-y-8 animate-fade-in max-w-7xl mx-auto">
+      {/* Welcome Header */}
       <div>
-        <h1 className="text-2xl font-bold text-foreground">
-          Welcome back, {session?.user?.name || 'User'}
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">
+          Welcome, {session?.user?.name || 'Administrator'}
         </h1>
-        <p className="text-muted-foreground mt-1">
-          Here&apos;s your billing overview
+        <p className="text-muted-foreground mt-1 text-lg">
+          TeleRadiology Billing & Revenue Cycle Overview
         </p>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Pending Mappings"
-          value="—"
-          subtitle="Awaiting review"
-          gradient="from-amber-500/20 to-orange-500/20"
-          icon={
-            <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
-            </svg>
-          }
-        />
-        <StatCard
-          title="Studies This Month"
-          value="—"
-          subtitle="Total synced"
-          gradient="from-teal-500/20 to-emerald-500/20"
-          icon={
-            <svg className="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2" />
-            </svg>
-          }
-        />
-        <StatCard
-          title="Draft Invoices"
-          value="—"
-          subtitle="Ready to finalize"
-          gradient="from-blue-500/20 to-indigo-500/20"
-          icon={
-            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          }
-        />
-        <StatCard
-          title="Total Receivable"
-          value="—"
-          subtitle="Across all clients"
-          gradient="from-emerald-500/20 to-green-500/20"
-          icon={
-            <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          }
-        />
+      {/* Main Stats Summary */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="bg-black/20 border-border/50 backdrop-blur-sm hover:glow-teal transition-all">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-emerald-400">Total Billed</CardTitle>
+            <TrendingUp className="h-4 w-4 text-emerald-400 opacity-50" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">৳{summary.totalBilled.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">Lifetime invoiced revenue</p>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-black/20 border-border/50 backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-blue-400">Total Collected</CardTitle>
+            <CheckCircle className="h-4 w-4 text-blue-400 opacity-50" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">৳{summary.totalPaid.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">Actual cash inflow</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-orange-950/10 border-orange-900/40 backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-orange-500">Uncollected (AR)</CardTitle>
+            <Activity className="h-4 w-4 text-orange-500 opacity-50" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-400">৳{summary.totalDue.toLocaleString()}</div>
+            <p className="text-xs text-orange-500/60">Outstanding balanced due</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-black/20 border-border/50 backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-amber-500">Pending Mappings</CardTitle>
+            <Search className="h-4 w-4 text-amber-500 opacity-50" />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${summary.unmappedCount > 0 ? 'text-amber-400' : 'text-foreground'}`}>
+              {summary.unmappedCount}
+            </div>
+            <p className="text-xs text-muted-foreground">Requires manual classification</p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Quick Actions */}
-      <div>
-        <h2 className="text-lg font-semibold text-foreground mb-3">Quick Actions</h2>
+      {/* Quick Actions Integration */}
+      <section>
+        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Activity className="w-5 h-5 text-teal-500" />
+          Quick Actions
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button className="glass-card rounded-xl p-5 text-left hover:border-primary/30 transition-all group">
-            <div className="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center mb-3 group-hover:bg-teal-500/20 transition-colors">
-              <svg className="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-            </div>
-            <h3 className="text-sm font-semibold text-foreground">Upload Studies</h3>
-            <p className="text-xs text-muted-foreground mt-1">Import CSV or XLSX files</p>
-          </button>
-
-          <button className="glass-card rounded-xl p-5 text-left hover:border-primary/30 transition-all group">
-            <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center mb-3 group-hover:bg-blue-500/20 transition-colors">
-              <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-              </svg>
-            </div>
-            <h3 className="text-sm font-semibold text-foreground">Sync from MSSQL</h3>
-            <p className="text-xs text-muted-foreground mt-1">Pull latest study data</p>
-          </button>
-
-          <button className="glass-card rounded-xl p-5 text-left hover:border-primary/30 transition-all group">
-            <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center mb-3 group-hover:bg-emerald-500/20 transition-colors">
-              <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </div>
-            <h3 className="text-sm font-semibold text-foreground">New Invoice</h3>
-            <p className="text-xs text-muted-foreground mt-1">Create billing invoice</p>
-          </button>
+          <QuickAction 
+            title="Upload Studies" 
+            subtitle="Import CSV/XLSX volume files" 
+            href="/studies/upload" 
+            icon={Upload} 
+            colorClass="bg-teal-500/10 text-teal-400 group-hover:bg-teal-500/20"
+          />
+          <QuickAction 
+            title="Sync from MSSQL" 
+            subtitle="Manual pull from production" 
+            href="/config/db-instances" 
+            icon={Database} 
+            colorClass="bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20"
+          />
+          <QuickAction 
+            title="New Invoice" 
+            subtitle="Create billing statement" 
+            href="/invoices/builder" 
+            icon={Plus} 
+            colorClass="bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500/20"
+          />
         </div>
-      </div>
+      </section>
 
-      {/* Recent Activity */}
-      <div className="glass-card rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-foreground mb-4">Recent Activity</h2>
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
-          <div className="text-center">
-            <svg className="w-12 h-12 mx-auto mb-3 text-muted-foreground/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-sm">No recent activity</p>
-            <p className="text-xs mt-1">Start by syncing studies or uploading a file</p>
-          </div>
-        </div>
+      {/* Charts Section */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
+        <Card className="col-span-4 bg-black/20 border-border/50 backdrop-blur-xl">
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle>Invoiced Revenue Trend</CardTitle>
+                <CardDescription>Billed volume over the last 6 months.</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="h-[350px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={revenueTrend} margin={{ top: 10, right: 30, left: 30, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.5}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
+                <XAxis dataKey="name" stroke="#888888" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis 
+                  stroke="#888888" 
+                  fontSize={12} 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tickFormatter={(value) => `৳${(value/1000).toFixed(0)}k`} 
+                />
+                <RechartsTooltip 
+                  formatter={(value: any) => [`৳${Number(value).toLocaleString()}`, 'Revenue']}
+                  contentStyle={{ backgroundColor: '#1e1e2d', borderColor: '#333', borderRadius: '8px' }}
+                />
+                <Area type="monotone" dataKey="revenue" stroke="#3b82f6" fillOpacity={1} fill="url(#colorRevenue)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="col-span-3 bg-black/20 border-border/50 backdrop-blur-xl">
+          <CardHeader>
+            <CardTitle>Top Hospitals by Revenue</CardTitle>
+            <CardDescription>Highest lifetime billing volume.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topClients} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" horizontal={false} />
+                  <XAxis type="number" stroke="#888" tickFormatter={(v) => `৳${(v/1000).toFixed(0)}k`} />
+                  <YAxis dataKey="name" type="category" stroke="#888" fontSize={11} width={100} tick={{fill: '#ccc'}} />
+                  <RechartsTooltip 
+                    cursor={{fill: '#333'}}
+                    formatter={(value: any) => [`৳${Number(value).toLocaleString()}`, 'Billed']}
+                    contentStyle={{ backgroundColor: '#1e1e2d', borderColor: '#333', borderRadius: '8px' }}
+                  />
+                  <Bar dataKey="billed" fill="#10b981" radius={[0, 4, 4, 0]} barSize={20} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {topClients.length === 0 && (
+              <div className="h-full flex items-center justify-center text-muted-foreground italic">
+                No hospital data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

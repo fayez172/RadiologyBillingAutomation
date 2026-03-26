@@ -94,11 +94,8 @@ export async function mapStudy(studyId: string): Promise<boolean> {
       data: {
         type: null,
         type_dr: null,
-        mapping_confidence: 'UNMAPPED',
-        normalized_hospital: clientId,
-        normalized_radiologist: radiologistId,
-        normalized_procedure: procedure
-      } as any
+        mapping_confidence: 'UNMAPPED'
+      }
     });
     return false;
   }
@@ -121,11 +118,8 @@ export async function mapStudy(studyId: string): Promise<boolean> {
       data: {
         type: exactMatch.type,
         type_dr: exactMatch.type_dr,
-        mapping_confidence: 'EXACT',
-        normalized_hospital: clientId,
-        normalized_radiologist: radiologistId,
-        normalized_procedure: procedure
-      } as any
+        mapping_confidence: 'EXACT'
+      }
     });
     return true;
   }
@@ -149,11 +143,8 @@ export async function mapStudy(studyId: string): Promise<boolean> {
           data: {
             type: mapping.type,
             type_dr: mapping.type_dr,
-            mapping_confidence: 'FUZZY',
-            normalized_hospital: clientId,
-            normalized_radiologist: radiologistId,
-            normalized_procedure: procedure
-          } as any
+            mapping_confidence: 'FUZZY'
+          }
         });
         return true;
       }
@@ -168,11 +159,8 @@ export async function mapStudy(studyId: string): Promise<boolean> {
     data: {
       type: null,
       type_dr: null,
-      mapping_confidence: 'MANUAL',
-      normalized_hospital: clientId,
-      normalized_radiologist: radiologistId,
-      normalized_procedure: procedure
-    } as any
+      mapping_confidence: 'MANUAL'
+    }
   });
   
   return false;

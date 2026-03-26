@@ -26,6 +26,9 @@ export async function GET() {
         is_active: true,
         last_synced_at: true,
         username: true,
+        owner_ids: true,
+        auto_sync: true,
+        sync_time: true,
         // NEVER send encrypted password or plaintext password to client
       },
     });
@@ -44,7 +47,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { name, ip, port, username, password, reporting_db, radiology_db } = body;
+    const { name, ip, port, username, password, reporting_db, radiology_db, owner_ids, auto_sync, sync_time } = body;
 
     if (!name || !ip || !username || !password) {
       return error('VALIDATION_ERROR', 'Missing required fields', 400);
@@ -66,6 +69,11 @@ export async function POST(req: Request) {
       return error('CONNECTION_FAILED', testResult.error || 'Connection failed', 400);
     }
 
+    // Normalize owner_ids: "3, 4" -> "[3,4]"
+    const normalizedOwnerIds = typeof owner_ids === 'string' 
+      ? JSON.stringify(owner_ids.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)))
+      : (Array.isArray(owner_ids) ? JSON.stringify(owner_ids) : '[3]');
+
     // 2. Save if connection successful
     const instance = await prisma.dbInstance.create({
       data: {
@@ -76,6 +84,9 @@ export async function POST(req: Request) {
         password_encrypted: encryptedPassword,
         reporting_db: reporting_db || 'RADSpaRISReportingDB',
         radiology_db: radiology_db || 'RADSpaRISRadiologyDB',
+        owner_ids: normalizedOwnerIds,
+        auto_sync: Boolean(auto_sync),
+        sync_time: sync_time || '02:00',
       },
     });
 

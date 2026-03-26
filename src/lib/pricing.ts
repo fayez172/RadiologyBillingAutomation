@@ -2,7 +2,7 @@ import { prisma } from './prisma';
 
 /**
  * Get the effective price for a Client based on study type and report date.
- * Fallback order: ClientPrice -> GlobalPrice -> 0
+ * Fallback order: ClientPrice -> BillingType (Default) -> GlobalPrice -> 0
  */
 export async function getClientPrice(clientId: string, studyType: string, reportDate: Date): Promise<number> {
   // 1. Check Client specific price
@@ -21,7 +21,15 @@ export async function getClientPrice(clientId: string, studyType: string, report
 
   if (clientPrice) return Number(clientPrice.price);
 
-  // 2. Check Global Fallback price
+  // 2. Check BillingType Default price
+  const billingType = await prisma.billingType.findUnique({
+    where: { name: studyType }
+  });
+  if (billingType && billingType.is_active) {
+    return Number(billingType.default_hospital_price);
+  }
+
+  // 3. Check Global Fallback price (Legacy)
   const globalPrice = await prisma.globalPrice.findFirst({
     where: {
       type: studyType,
@@ -36,15 +44,16 @@ export async function getClientPrice(clientId: string, studyType: string, report
 
   if (globalPrice) return Number(globalPrice.price);
 
-  // 3. Not found
+  // 4. Not found
   return 0;
 }
 
 /**
  * Get the effective fee for a Radiologist based on study type and report date.
- * Fallback order: RadiologistPrice -> 0 (No global fallback for radiologists currently defined, could be added later if needed)
+ * Fallback order: RadiologistPrice -> BillingType (Default) -> 0
  */
 export async function getRadiologistPrice(radiologistId: string, typeDr: string, reportDate: Date): Promise<number> {
+  // 1. Check Radiologist specific price
   const radPrice = await prisma.radiologistPrice.findFirst({
     where: {
       radiologist_id: radiologistId,
@@ -59,6 +68,14 @@ export async function getRadiologistPrice(radiologistId: string, typeDr: string,
   });
 
   if (radPrice) return Number(radPrice.price);
+
+  // 2. Check BillingType Default price
+  const billingType = await prisma.billingType.findUnique({
+    where: { name: typeDr }
+  });
+  if (billingType && billingType.is_active) {
+    return Number(billingType.default_radiologist_price);
+  }
 
   return 0;
 }

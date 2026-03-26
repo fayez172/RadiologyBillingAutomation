@@ -21,6 +21,7 @@ export default function MappingQueuePage() {
   const [instances, setInstances] = useState<{ id: string, name: string }[]>([]);
   const [selectedInstance, setSelectedInstance] = useState('');
   const [runningEngine, setRunningEngine] = useState(false);
+  const [billingTypes, setBillingTypes] = useState<{ name: string; display_name: string }[]>([]);
 
   // Assignment state
   const [manualTypeId, setManualTypeId] = useState<string | null>(null);
@@ -45,6 +46,11 @@ export default function MappingQueuePage() {
     // Fetch instances for filter
     fetch('/api/instances').then(r => r.json()).then(d => {
       if (d.data) setInstances(d.data);
+    });
+
+    // Fetch billing types for dropdowns
+    fetch('/api/config/billing-types').then(r => r.json()).then(d => {
+      if (Array.isArray(d)) setBillingTypes(d);
     });
   }, []);
 
@@ -173,21 +179,38 @@ export default function MappingQueuePage() {
                     </td>
                     <td className="px-4 py-3">
                       {manualTypeId === s.id ? (
-                        <div className="flex gap-2 items-center">
-                          <input 
-                            placeholder="Client Type" 
-                            className="bg-background border rounded px-2 py-1 text-xs w-28"
-                            value={typeClient} onChange={e => setTypeClient(e.target.value)}
-                          />
-                          <input 
-                            placeholder="Rad Type" 
-                            className="bg-background border rounded px-2 py-1 text-xs w-28"
-                            value={typeRad} onChange={e => setTypeRad(e.target.value)}
-                          />
-                          <button onClick={() => handleAssign(s.id)} className="bg-teal-500/20 text-teal-400 p-1 rounded hover:bg-teal-500/30">
+                        <div className="flex gap-2 items-center animate-in fade-in slide-in-from-right-1 duration-200">
+                          <select 
+                            className="bg-background border border-border rounded px-2 py-1.5 text-xs w-36 outline-none focus:ring-1 focus:ring-teal-500/50"
+                            value={typeClient} 
+                            onChange={e => setTypeClient(e.target.value)}
+                          >
+                            <option value="">Client Type...</option>
+                            {billingTypes.map(t => (
+                              <option key={t.name} value={t.name}>{t.display_name || t.name}</option>
+                            ))}
+                          </select>
+                          <select 
+                            className="bg-background border border-border rounded px-2 py-1.5 text-xs w-36 outline-none focus:ring-1 focus:ring-teal-500/50"
+                            value={typeRad} 
+                            onChange={e => setTypeRad(e.target.value)}
+                          >
+                            <option value="">Rad Type...</option>
+                            {billingTypes.map(t => (
+                              <option key={t.name} value={t.name}>{t.display_name || t.name}</option>
+                            ))}
+                          </select>
+                          <button 
+                            onClick={() => handleAssign(s.id)} 
+                            disabled={!typeClient || !typeRad}
+                            className="bg-teal-500/20 text-teal-400 px-2 py-1.5 rounded hover:bg-teal-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
                             ✓ Assign
                           </button>
-                          <button onClick={() => setManualTypeId(null)} className="bg-white/5 p-1 rounded hover:bg-white/10">
+                          <button 
+                            onClick={() => setManualTypeId(null)} 
+                            className="text-muted-foreground p-1.5 rounded hover:bg-white/5 transition-colors"
+                          >
                             ✕
                           </button>
                         </div>

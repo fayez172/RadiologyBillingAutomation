@@ -64,6 +64,9 @@ export async function POST(req: Request) {
       }
     });
 
+    // Trigger background re-mapping of relevant studies
+    import('@/lib/mapping-engine').then(m => m.mapUnmappedStudies()).catch(console.error);
+
     return success(mapping);
   } catch (err: any) {
     if (err.code === 'P2002') return error('CONFLICT', 'Mapping for this modality and pattern already exists.', 409);

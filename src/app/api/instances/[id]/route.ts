@@ -19,7 +19,7 @@ export async function PUT(
 
     const { id } = params;
     const body = await req.json();
-    const { name, ip, port, username, password, reporting_db, radiology_db, is_active } = body;
+    const { name, ip, port, username, password, reporting_db, radiology_db, owner_ids, auto_sync, sync_time, is_active } = body;
 
     const existing = await prisma.dbInstance.findUnique({ where: { id } });
     if (!existing) return error('NOT_FOUND', 'Instance not found', 404);
@@ -46,6 +46,11 @@ export async function PUT(
       return error('CONNECTION_FAILED', testResult.error || 'Connection test failed with new settings', 400);
     }
 
+    // Normalize owner_ids: "3, 4" -> "[3,4]"
+    const normalizedOwnerIds = typeof owner_ids === 'string'
+      ? JSON.stringify(owner_ids.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)))
+      : (Array.isArray(owner_ids) ? JSON.stringify(owner_ids) : undefined);
+
     const instance = await prisma.dbInstance.update({
       where: { id },
       data: {
@@ -56,6 +61,9 @@ export async function PUT(
         password_encrypted,
         reporting_db,
         radiology_db,
+        owner_ids: normalizedOwnerIds || existing.owner_ids,
+        auto_sync: auto_sync !== undefined ? Boolean(auto_sync) : existing.auto_sync,
+        sync_time: sync_time || existing.sync_time,
         is_active,
       },
     });

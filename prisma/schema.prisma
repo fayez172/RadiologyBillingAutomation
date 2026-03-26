@@ -12,6 +12,7 @@ datasource db {
 enum Role {
   ADMIN
   BILLING
+  VIEWER
 }
 
 enum MappingConfidence {
@@ -54,6 +55,9 @@ model DbInstance {
   reporting_db         String    @default("RADSpaRISReportingDB")
   radiology_db         String    @default("RADSpaRISRadiologyDB")
   is_active            Boolean   @default(true)
+  owner_ids            String    @default("[3]")   // JSON array of OwnerIDs
+  auto_sync            Boolean   @default(false)
+  sync_time            String    @default("02:00") // Time for auto-sync (HH:mm)
   last_synced_at       DateTime?
   created_at           DateTime  @default(now())
   updated_at           DateTime  @updatedAt
@@ -62,6 +66,88 @@ model DbInstance {
   upload_jobs          UploadJob[]
   client_aliases       ClientAlias[]
   radiologist_aliases  RadiologistAlias[]
+  remote_modalities    RemoteModality[]
+  remote_procedures    RemoteProcedure[]
+  remote_study_sources RemoteStudySource[]
+  remote_radiologists  RemoteRadiologist[]
+}
+
+// ─── Remote Reference Data (Synced from MSSQL) ─────
+
+model RemoteModality {
+  id            String   @id @default(uuid())
+  remote_id     Int
+  code          String
+  display_name  String
+  alt_names     String?
+  owner_id      Int      @default(3)
+  instance_id   String
+  is_active     Boolean  @default(true)
+  
+  instance      DbInstance @relation(fields: [instance_id], references: [id])
+  procedures    RemoteProcedure[]
+
+  @@unique([remote_id, instance_id])
+  @@index([instance_id])
+}
+
+model RemoteProcedure {
+  id                 String   @id @default(uuid())
+  remote_id          Int
+  name               String
+  procedure_code     String?
+  parent_modality_id String?
+  owner_id           Int      @default(3)
+  instance_id        String
+  is_active          Boolean  @default(true)
+  
+  billing_type       String?  // Map to BillingType.name
+  billing_type_dr    String?  // Radiologist fee type
+
+  instance           DbInstance      @relation(fields: [instance_id], references: [id])
+  parent_modality    RemoteModality? @relation(fields: [parent_modality_id], references: [id])
+
+  @@unique([remote_id, instance_id])
+  @@index([instance_id])
+  @@index([parent_modality_id])
+  @@index([billing_type])
+}
+
+model RemoteStudySource {
+  id            String   @id @default(uuid())
+  remote_id     Int
+  name          String
+  owner_id      Int      @default(3)
+  instance_id   String
+  is_active     Boolean  @default(true)
+  
+  client_id     String?
+
+  instance      DbInstance @relation(fields: [instance_id], references: [id])
+  client        Client?    @relation(fields: [client_id], references: [id])
+
+  @@unique([remote_id, instance_id])
+  @@index([instance_id])
+}
+
+model RemoteRadiologist {
+  id            String   @id @default(uuid())
+  remote_id     Int
+  first_name    String?
+  middle_name   String?
+  last_name     String?
+  display_name  String
+  owner_id      Int      @default(3)
+  instance_id   String
+  is_active     Boolean  @default(true)
+  
+  radiologist_id String?
+
+  instance      DbInstance   @relation(fields: [instance_id], references: [id])
+  radiologist   Radiologist? @relation(fields: [radiologist_id], references: [id])
+
+  @@unique([remote_id, instance_id])
+  @@index([instance_id])
 }
 
 // ─── Studies ───────────────────────────────────────
@@ -79,6 +165,16 @@ model Study {
   modality           String?
   image_count        Int?
   patient_name       String?
+
+  // Remote ID tracking
+  reported_by_remote_id  Int?
+  add1_rad_remote_id     Int?
+  add2_rad_remote_id     Int?
+  add3_rad_remote_id     Int?
+  final_rad_remote_id    Int?
+  study_source_remote_id Int?
+  modality_remote_id     Int?
+  procedure_remote_id    Int?
 
   // Mapping results
   type               String?
@@ -176,6 +272,7 @@ model Client {
   prices        ClientPrice[]
   invoices      Invoice[]
   payments      Payment[]
+  remote_study_sources RemoteStudySource[]
 }
 
 model ClientAlias {
@@ -183,6 +280,7 @@ model ClientAlias {
   client_id   String
   alias_name  String
   instance_id String?
+  remote_id   Int?
 
   client      Client      @relation(fields: [client_id], references: [id], onDelete: Cascade)
   instance    DbInstance? @relation(fields: [instance_id], references: [id])
@@ -220,6 +318,7 @@ model Radiologist {
 
   aliases     RadiologistAlias[]
   prices      RadiologistPrice[]
+  remote_radiologists RemoteRadiologist[]
 }
 
 model RadiologistAlias {
@@ -227,6 +326,7 @@ model RadiologistAlias {
   radiologist_id  String
   alias_name      String
   instance_id     String?
+  remote_id       Int?
 
   radiologist     Radiologist  @relation(fields: [radiologist_id], references: [id], onDelete: Cascade)
   instance        DbInstance?  @relation(fields: [instance_id], references: [id])
@@ -258,6 +358,20 @@ model GlobalPrice {
   effective_from DateTime
   effective_to   DateTime?
   created_at     DateTime  @default(now())
+}
+
+model BillingType {
+  id                        String   @id @default(uuid())
+  name                      String   @unique   // e.g. "X-Ray_Single_View"
+  display_name              String              // e.g. "X-Ray Single View"
+  modalities                String              // e.g. "CR, DX" or "CT" or "MR"
+  default_hospital_price    Decimal  @default(0) @db.Decimal(10, 2)
+  default_radiologist_price Decimal  @default(0) @db.Decimal(10, 2)
+  is_billable               Boolean  @default(true)  // false for No_Bill, BILL_OF_RSB
+  sort_order                Int      @default(0)
+  is_active                 Boolean  @default(true)
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
 }
 
 // ─── Invoices ──────────────────────────────────────

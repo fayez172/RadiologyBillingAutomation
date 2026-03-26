@@ -11,6 +11,9 @@ interface DbInstance {
   radiology_db: string;
   is_active: boolean;
   username: string;
+  owner_ids: string;
+  auto_sync: boolean;
+  sync_time: string;
   last_synced_at: string | null;
 }
 
@@ -18,6 +21,7 @@ export default function DbInstancesPage() {
   const [instances, setInstances] = useState<DbInstance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   // Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -30,9 +34,21 @@ export default function DbInstancesPage() {
     password: '',
     reporting_db: 'RADSpaRISReportingDB',
     radiology_db: 'RADSpaRISRadiologyDB',
+    owner_ids: '3',
+    auto_sync: false,
+    sync_time: '02:00',
     is_active: true,
   });
-  const [submitting, setSubmitting] = useState(false);
+
+  const formatOwnerIds = (val: string) => {
+    try {
+      if (!val) return '3';
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed.join(', ') : val;
+    } catch {
+      return val;
+    }
+  };
 
   useEffect(() => {
     fetchInstances();
@@ -62,6 +78,9 @@ export default function DbInstancesPage() {
         password: '', // Never populate password
         reporting_db: instance.reporting_db,
         radiology_db: instance.radiology_db,
+        owner_ids: formatOwnerIds(instance.owner_ids),
+        auto_sync: instance.auto_sync || false,
+        sync_time: instance.sync_time || '02:00',
         is_active: instance.is_active,
       });
     } else {
@@ -74,6 +93,9 @@ export default function DbInstancesPage() {
         password: '',
         reporting_db: 'RADSpaRISReportingDB',
         radiology_db: 'RADSpaRISRadiologyDB',
+        owner_ids: '3',
+        auto_sync: false,
+        sync_time: '02:00',
         is_active: true,
       });
     }
@@ -201,6 +223,16 @@ export default function DbInstancesPage() {
                 <span>Radiology DB:</span>
                 <span className="text-foreground text-xs truncate max-w-[120px]" title={instance.radiology_db}>{instance.radiology_db}</span>
               </div>
+              <div className="flex items-center justify-between">
+                <span>Owner IDs:</span>
+                <span className="text-foreground font-mono bg-secondary/50 px-1 rounded">{formatOwnerIds(instance.owner_ids)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Auto Sync:</span>
+                <span className={`text-xs px-1.5 py-0.5 rounded ${instance.auto_sync ? 'bg-teal-500/10 text-teal-400' : 'bg-muted/30 text-muted-foreground'}`}>
+                  {instance.auto_sync ? `Enabled at ${instance.sync_time}` : 'Disabled'}
+                </span>
+              </div>
             </div>
 
             <div className="mt-4 pt-4 border-t border-border flex items-center justify-between text-xs">
@@ -314,6 +346,42 @@ export default function DbInstancesPage() {
                     onChange={e => setFormData({...formData, radiology_db: e.target.value})}
                   />
                 </div>
+
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium mb-1">Owner IDs <span className="text-muted-foreground text-xs font-normal">(Comma separated)</span></label>
+                  <input
+                    required
+                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                    value={formData.owner_ids}
+                    onChange={e => setFormData({...formData, owner_ids: e.target.value})}
+                    placeholder="e.g. 3, 4"
+                  />
+                </div>
+
+                <div className="col-span-1 flex items-center mt-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 rounded border-border text-teal-500 focus:ring-teal-500 bg-secondary"
+                      checked={formData.auto_sync}
+                      onChange={e => setFormData({...formData, auto_sync: e.target.checked})}
+                    />
+                    <span className="text-sm font-medium">Enable Auto Sync</span>
+                  </label>
+                </div>
+
+                {formData.auto_sync && (
+                  <div className="col-span-1">
+                    <label className="block text-sm font-medium mb-1">Time <span className="text-muted-foreground text-xs font-normal">(HH:mm)</span></label>
+                    <input
+                      required={formData.auto_sync}
+                      type="time"
+                      className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                      value={formData.sync_time}
+                      onChange={e => setFormData({...formData, sync_time: e.target.value})}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="pt-4 border-t border-border flex justify-end gap-3">

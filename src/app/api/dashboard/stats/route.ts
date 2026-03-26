@@ -66,12 +66,18 @@ export async function GET(req: Request) {
       where: { is_duplicate: false }
     });
 
+    // 5. Unmapped Records
+    const unmappedCount = await prisma.study.count({
+      where: { mapping_confidence: 'UNMAPPED' }
+    });
+
     return success({
       summary: {
         totalBilled,
         totalPaid,
         totalDue,
-        studyCount
+        studyCount,
+        unmappedCount
       },
       topClients,
       revenueTrend: trend
