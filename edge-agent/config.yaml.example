@@ -1,0 +1,44 @@
+# ── Identity ──────────────────────────────────────────────────────────────────
+instance_id: hospital-abc              # Assigned by billing app admin UI
+api_endpoint: https://billing.telerad.com
+api_key: sk_live_xxxxxxxxxxxx          # Issued by billing app, rotatable
+
+# ── MSSQL Connection ──────────────────────────────────────────────────────────
+mssql:
+  host: localhost                      # LOCAL server — never the public IP
+  port: 1433
+  user: sync_user
+  password: "${MSSQL_PASSWORD}"        # Resolved from env var; or plain text
+  reporting_db: RADSpaRISReportingDB
+  radiology_db: RADSpaRISRadiologyDB
+  odbc_driver: "ODBC Driver 17 for SQL Server"   # Adjust if 18 is installed
+  connect_timeout: 15
+  query_timeout: 120
+
+# ── CDC Polling Intervals ─────────────────────────────────────────────────────
+polling:
+  finished_reports_seconds: 30        # FinishedReport — high frequency
+  reference_data_hours: 1             # Radiologist, Modality, StudySource
+  procedures_hours: 6                 # Procedure table
+
+# ── Backfill (Historical Data) ────────────────────────────────────────────────
+# Remove this section after backfill completes; agent auto-switches to CDC mode.
+backfill:
+  enabled: true
+  from_date: "2024-01-01"             # Inclusive
+  to_date: "2026-04-29"               # Inclusive — typically today
+  batch_size: 1000                    # Rows per HTTP push
+
+# ── Network / Proxy ───────────────────────────────────────────────────────────
+network:
+  proxy_url: ""                        # e.g. http://proxy.hospital.local:8080
+  proxy_username: ""
+  proxy_password: ""
+  connect_timeout_seconds: 15
+  request_timeout_seconds: 60
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level: INFO                          # DEBUG | INFO | WARNING | ERROR
+  max_file_size_mb: 5
+  backup_count: 3

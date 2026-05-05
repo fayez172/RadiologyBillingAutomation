@@ -1,0 +1,24 @@
+instance_id: "941776b1-0a16-44b7-a615-3b5d6e8561c6"
+api_key: "8b41d325f36d75727a8859f5afa7290d1e5bea39cc84f5411b6beda5c009dcc4"
+api_endpoint: "http://localhost:3002"
+
+mssql:
+  host: "172.28.28.203"
+  port: 1433
+  user: "sa"
+  password: "SQLAdmin1"
+  radiology_db: "RADSpaRISRadiologyDB"
+  reporting_db: "RADSpaRISReportingDB"
+
+backfill:
+  enabled: true
+  from_date: "2026-02-01"
+  to_date: "2026-02-28"
+  batch_size: 500
+
+polling:
+  finished_reports_seconds: 30
+  reference_data_hours: 24
+
+logging:
+  level: "INFO"
