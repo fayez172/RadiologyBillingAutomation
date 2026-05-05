@@ -62,6 +62,11 @@ model DbInstance {
   created_at           DateTime  @default(now())
   updated_at           DateTime  @updatedAt
 
+  // Edge Agent fields
+  agent_api_key        String?   // HMAC key issued to the edge agent for this instance
+  agent_last_seen_at   DateTime? // Last time the edge agent pushed or sent a heartbeat
+  agent_mode           Boolean   @default(false) // true = edge agent push, false = direct pull
+
   studies              Study[]
   upload_jobs          UploadJob[]
   client_aliases       ClientAlias[]
@@ -70,6 +75,7 @@ model DbInstance {
   remote_procedures    RemoteProcedure[]
   remote_study_sources RemoteStudySource[]
   remote_radiologists  RemoteRadiologist[]
+  agent_push_logs      AgentPushLog[]
 }
 
 // ─── Remote Reference Data (Synced from MSSQL) ─────
@@ -303,22 +309,39 @@ model ClientPrice {
   @@index([client_id, type])
 }
 
-// ─── Radiologists ──────────────────────────────────
-
 model Radiologist {
-  id          String    @id @default(uuid())
-  name        String    @unique
-  email       String?
-  is_active   Boolean   @default(true)
-  total_billed Decimal  @default(0) @db.Decimal(14, 2)
-  total_paid  Decimal   @default(0) @db.Decimal(14, 2)
-  current_due Decimal   @default(0) @db.Decimal(14, 2)
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
+  id                  String      @id @default(uuid())
+  name                String      @unique
+  email               String?
+  is_active           Boolean     @default(true)
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @default(now()) @updatedAt
 
-  aliases     RadiologistAlias[]
-  prices      RadiologistPrice[]
+  // Ledger tracking
+  total_billed        Decimal     @default(0) @db.Decimal(12, 2)
+  total_paid          Decimal     @default(0) @db.Decimal(12, 2)
+  current_due         Decimal     @default(0) @db.Decimal(12, 2)
+  last_payment_at     DateTime?
+
+  aliases             RadiologistAlias[]
+  prices              RadiologistPrice[]
   remote_radiologists RemoteRadiologist[]
+  payments            RadiologistPayment[]
+}
+
+model RadiologistPayment {
+  id              String      @id @default(uuid())
+  radiologist_id  String
+  amount          Decimal     @db.Decimal(12, 2)
+  payment_date    DateTime
+  reference       String?
+  note            String?
+  created_by      String
+  created_at      DateTime    @default(now())
+
+  radiologist     Radiologist @relation(fields: [radiologist_id], references: [id])
+
+  @@index([radiologist_id, payment_date])
 }
 
 model RadiologistAlias {
@@ -448,4 +471,25 @@ model AuditLog {
   @@index([entity, entity_id])
   @@index([user_id])
   @@index([created_at])
+}
+
+// ─── Agent Push Log ─────────────────────────────────
+
+model AgentPushLog {
+  id             String   @id @default(uuid())
+  instance_id    String
+  pushed_at      DateTime
+  is_backfill    Boolean  @default(false)
+  is_heartbeat   Boolean  @default(false)
+  studies_count  Int      @default(0)
+  deletes_count  Int      @default(0)
+  ref_data_count Int      @default(0)
+  status         String   @default("OK")  // OK | ERROR
+  error_message  String?
+  created_at     DateTime @default(now())
+
+  instance       DbInstance @relation(fields: [instance_id], references: [id])
+
+  @@index([instance_id])
+  @@index([pushed_at])
 }

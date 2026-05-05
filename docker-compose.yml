@@ -27,6 +27,21 @@ services:
       timeout: 5s
       retries: 5
 
+  web:
+    build: .
+    ports:
+      - "3847:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://telerad:telerad_pass@postgres:5432/telerad_billing
+      - REDIS_URL=redis://redis:6379
+    restart: always
+
 volumes:
   postgres_data:
   redis_data:
