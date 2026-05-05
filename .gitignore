@@ -39,3 +39,20 @@ explore_db.py
 # agent
 .agent/
 scratch/
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+
+# logs
+*.log
+edge-agent/logs/
+
+# database
+*.db
+edge-agent/state.db
