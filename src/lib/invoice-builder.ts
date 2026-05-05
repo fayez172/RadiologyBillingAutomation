@@ -1,5 +1,5 @@
 import { prisma } from './prisma';
-import { getClientPrice } from './pricing';
+import { getClientPrice, getRadiologistPrice } from './pricing';
 
 export interface InvoiceLineDraft {
   type: string;
@@ -144,6 +144,115 @@ export async function buildInvoiceDraft(clientId: string, periodStart: Date, per
   return {
     client_id: client.id,
     client_name: client.name,
+    period_start: periodStart,
+    period_end: periodEnd,
+    lines,
+    subtotal,
+    previous_due: previousDue,
+    total_due: totalDue
+  };
+}
+
+export interface RadiologistBillingDraft {
+  radiologist_id: string;
+  radiologist_name: string;
+  period_start: Date;
+  period_end: Date;
+  lines: InvoiceLineDraft[];
+  subtotal: number;
+  previous_due: number;
+  total_due: number;
+}
+
+/**
+ * Builds a Billing Draft for a given radiologist and date range.
+ */
+export async function buildRadiologistBillingDraft(radiologistId: string, periodStart: Date, periodEnd: Date): Promise<RadiologistBillingDraft> {
+  const radiologist = await prisma.radiologist.findUnique({
+    where: { id: radiologistId },
+    include: { aliases: true }
+  });
+
+  if (!radiologist) throw new Error('Radiologist not found');
+
+  // Fetch all active billing types for display name resolution
+  const billingTypes = await prisma.billingType.findMany({
+    where: { is_active: true }
+  });
+  const typeMap = new Map<string, any>(billingTypes.map((t: any) => [t.name, t]));
+
+  // Collect all acceptable radiologist name strings
+  const validNames = [radiologist.name, ...radiologist.aliases.map((a: any) => a.alias_name)];
+
+  // Fetch all non-duplicate mapped studies for these names in the date range
+  const studies = await prisma.study.findMany({
+    where: {
+      final_rad_name: { in: validNames },
+      report_dt: {
+        gte: periodStart,
+        lte: periodEnd
+      },
+      is_duplicate: false,
+      type_dr: { not: null } // Only include studies where a radiologist billing type was assigned
+    },
+    select: {
+      id: true,
+      type_dr: true
+    }
+  });
+
+  // Group by study type (radiologist fee type), expanding multi-unit types
+  const grouped = new Map<string, { qty: number; study_ids: string[] }>();
+  
+  for (const study of studies) {
+    if (!study.type_dr) continue;
+    
+    const expanded = expandStudyTypes(study.type_dr);
+    for (const rawType of expanded) {
+      const bType = typeMap.get(rawType);
+      const displayName = bType ? bType.display_name : rawType;
+      
+      if (!grouped.has(displayName)) {
+        grouped.set(displayName, { qty: 0, study_ids: [] });
+      }
+      const group = grouped.get(displayName)!;
+      group.qty += 1;
+      if (!group.study_ids.includes(study.id)) {
+        group.study_ids.push(study.id);
+      }
+    }
+  }
+
+  // Build the billing lines and calculate pricing
+  const lines: InvoiceLineDraft[] = [];
+  let subtotal = 0;
+
+  for (const [displayName, data] of Array.from(grouped.entries())) {
+    const bType = billingTypes.find((t: any) => t.display_name === displayName || t.name === displayName);
+    const lookupKey = bType ? bType.name : displayName;
+
+    const unitPrice = await getRadiologistPrice(radiologistId, lookupKey, periodEnd);
+    const lineTotal = data.qty * unitPrice;
+
+    lines.push({
+      type: displayName,
+      qty: data.qty,
+      unit_price: unitPrice,
+      total: lineTotal,
+      study_ids: data.study_ids
+    });
+
+    subtotal += lineTotal;
+  }
+
+  lines.sort((a, b) => a.type.localeCompare(b.type));
+
+  const previousDue = Number(radiologist.current_due);
+  const totalDue = subtotal + previousDue;
+
+  return {
+    radiologist_id: radiologist.id,
+    radiologist_name: radiologist.name,
     period_start: periodStart,
     period_end: periodEnd,
     lines,

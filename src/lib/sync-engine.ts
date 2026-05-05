@@ -26,7 +26,7 @@ export async function syncReferenceData(instanceId: string) {
     const mods = await pool.request().query(`
       SELECT ID, Code, DisplayName, AlternateNames, OwnerID, Active 
       FROM [${radDb}].dbo.Modality 
-      WHERE OwnerID IN (${ownerIdsStr})
+      WHERE OwnerID IN (${ownerIdsStr}) AND Active = 1
     `);
     
     for (const row of mods.recordset) {
@@ -50,7 +50,7 @@ export async function syncReferenceData(instanceId: string) {
     const procs = await pool.request().query(`
       SELECT ID, Name, ProcedureCode, ParentModalityID, OwnerID, Active
       FROM [${radDb}].dbo.[Procedure]
-      WHERE OwnerID IN (${ownerIdsStr})
+      WHERE OwnerID IN (${ownerIdsStr}) AND Active = 1
     `);
 
     for (const row of procs.recordset) {
@@ -78,7 +78,7 @@ export async function syncReferenceData(instanceId: string) {
     const studySources = await pool.request().query(`
       SELECT ID, Name, OwnerID, Active 
       FROM [${radDb}].dbo.StudySource 
-      WHERE OwnerID IN (${ownerIdsStr})
+      WHERE OwnerID IN (${ownerIdsStr}) AND Active = 1
     `);
     
     for (const row of studySources.recordset) {
@@ -122,7 +122,7 @@ export async function syncReferenceData(instanceId: string) {
     const rads = await pool.request().query(`
       SELECT ID, DisplayName, FirstName, MiddleName, LastName, OwnerID, Active
       FROM [${radDb}].dbo.Radiologist 
-      WHERE OwnerID IN (${ownerIdsStr})
+      WHERE OwnerID IN (${ownerIdsStr}) AND Active = 1
     `);
     
     for (const row of rads.recordset) {
@@ -217,6 +217,14 @@ export async function syncStudies(instanceId: string, customDateFrom?: Date, cus
   const repDb = instance.reporting_db;
   const radDb = instance.radiology_db;
 
+  // Parse owner IDs
+  let ownerIds = [3];
+  try {
+    const parsed = JSON.parse(instance.owner_ids);
+    if (Array.isArray(parsed) && parsed.length > 0) ownerIds = parsed;
+  } catch (e) {}
+  const ownerIdsStr = ownerIds.join(',');
+
   const query = `
     SELECT
         fr.WorkflowID,
@@ -249,6 +257,7 @@ export async function syncStudies(instanceId: string, customDateFrom?: Date, cus
     LEFT JOIN [${radDb}].dbo.StudySource     ss ON ss.ID = fr.StudySourceID
     WHERE fr.ReportCompletedTime >= @dateFrom
       AND fr.ReportCompletedTime <= @dateTo
+      AND ss.OwnerID IN (${ownerIdsStr})
     ORDER BY fr.ReportCompletedTime
   `;
 

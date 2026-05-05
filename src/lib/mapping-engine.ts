@@ -85,7 +85,7 @@ export async function mapStudy(studyId: string): Promise<boolean> {
   const clientId = await resolveClientAlias(study.hospital_name, study.instance_id);
   const radiologistId = await resolveRadiologistAlias(study.final_rad_name, study.instance_id);
 
-  // 2. Normalize
+  // 2. Normalize Study Data
   const { modality, procedure } = await normalize(study.modality, study.procedure_raw);
   
   if (!modality || !procedure) {
@@ -100,8 +100,7 @@ export async function mapStudy(studyId: string): Promise<boolean> {
     return false;
   }
 
-  // 3. Exact Match (is_regex = false)
-  // Find where modality matches and procedure_pattern equals exact normalized string
+  // 3. Exact Match (with Pattern Normalization)
   const exactMappings = await prisma.mapping.findMany({
     where: { 
       modality: { equals: modality, mode: 'insensitive' },
@@ -110,7 +109,13 @@ export async function mapStudy(studyId: string): Promise<boolean> {
     }
   });
 
-  const exactMatch = exactMappings.find((m: any) => m.procedure_pattern.toUpperCase() === procedure);
+  // Compare study's normalized procedure with mapping's pattern (also normalized for safety)
+  const exactMatch = exactMappings.find((m: any) => {
+    const patternNormalized = m.procedure_pattern.trim().toUpperCase()
+      .replace(/\s+/g, ' ')
+      .replace(/[^\w\s-]/g, '');
+    return patternNormalized === procedure;
+  });
   
   if (exactMatch) {
     await prisma.study.update({
