@@ -24,6 +24,7 @@ yarn-error.log*
 
 # local env files
 .env*.local
+.env
 
 # vercel
 .vercel
@@ -56,3 +57,4 @@ edge-agent/logs/
 # database
 *.db
 edge-agent/state.db
+.env

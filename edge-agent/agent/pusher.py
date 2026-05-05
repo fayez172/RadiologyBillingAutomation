@@ -55,6 +55,9 @@ class Pusher:
         is_backfill: bool = False,
         backfill_progress: Optional[dict] = None,
         ref_data: Optional[dict] = None,
+        command_id: Optional[str] = None,
+        command_status: Optional[str] = None,
+        command_error: Optional[str] = None,
     ) -> Optional[dict]:
         """
         Push a batch of studies to the billing API.
@@ -74,6 +77,12 @@ class Pusher:
             payload["ref_data"] = ref_data
         if backfill_progress:
             payload["backfill_progress"] = backfill_progress
+        if command_id:
+            payload["command_id"] = command_id
+        if command_status:
+            payload["command_status"] = command_status
+        if command_error:
+            payload["command_error"] = command_error
 
         return self._send_with_retry(payload)
 

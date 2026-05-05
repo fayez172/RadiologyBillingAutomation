@@ -185,10 +185,10 @@ def setup_cdc(ctx: click.Context) -> None:
 def status(ctx: click.Context) -> None:
     """Print current agent state from state.db."""
     cfg, state, _ = _resolve_paths(ctx.obj)
-    click.echo(f"\n{'─'*50}")
+    click.echo(f"\n{'-'*50}")
     click.echo(f"  Instance : {cfg.instance_id}")
     click.echo(f"  Endpoint : {cfg.api_endpoint}")
-    click.echo(f"{'─'*50}")
+    click.echo(f"{'-'*50}")
 
     bf = state.get_backfill(cfg.instance_id)
     if bf:
@@ -204,4 +204,8 @@ def status(ctx: click.Context) -> None:
     for row in rows:
         click.echo(f"    {row['table_name']:30s} pushed={row['rows_pushed_total']}")
 
-    click.echo(f"{'─'*50}\n")
+    click.echo(f"{'-'*50}\n")
+
+
+if __name__ == "__main__":
+    cli()

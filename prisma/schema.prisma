@@ -27,6 +27,15 @@ enum InvoiceStatus {
   FINAL
 }
 
+enum AgentCommandStatus {
+  PENDING
+  SENT
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
 // ─── Users & Auth ──────────────────────────────────
 
 model User {
@@ -76,6 +85,28 @@ model DbInstance {
   remote_study_sources RemoteStudySource[]
   remote_radiologists  RemoteRadiologist[]
   agent_push_logs      AgentPushLog[]
+  agent_commands       AgentCommand[]
+}
+
+model AgentCommand {
+  id            String             @id @default(uuid())
+  instance_id   String
+  command_type  String             // BACKFILL, SYNC_REF, etc.
+  payload       Json?
+  status        AgentCommandStatus @default(PENDING)
+  progress      Int                @default(0)
+  retry_count   Int                @default(0)
+  error_message String?
+  
+  created_at    DateTime           @default(now())
+  updated_at    DateTime           @updatedAt
+  started_at    DateTime?
+  completed_at  DateTime?
+  
+  instance      DbInstance         @relation(fields: [instance_id], references: [id])
+
+  @@index([instance_id])
+  @@index([status])
 }
 
 // ─── Remote Reference Data (Synced from MSSQL) ─────

@@ -15,6 +15,8 @@ interface DbInstance {
   auto_sync: boolean;
   sync_time: string;
   last_synced_at: string | null;
+  agent_last_seen_at: string | null;
+  agent_mode: boolean;
 }
 
 export default function DbInstancesPage() {
@@ -25,7 +27,10 @@ export default function DbInstancesPage() {
 
   // Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBackfillModalOpen, setIsBackfillModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [backfillInstance, setBackfillInstance] = useState<DbInstance | null>(null);
+  const [backfillDates, setBackfillDates] = useState({ from: '', to: '' });
   const [formData, setFormData] = useState({
     name: '',
     ip: '',
@@ -152,6 +157,45 @@ export default function DbInstancesPage() {
     }
   };
 
+  const handleOpenBackfillModal = (instance: DbInstance) => {
+    setBackfillInstance(instance);
+    const lastMonth = new Date();
+    lastMonth.setMonth(lastMonth.getMonth() - 1);
+    setBackfillDates({
+      from: lastMonth.toISOString().split('T')[0],
+      to: new Date().toISOString().split('T')[0]
+    });
+    setIsBackfillModalOpen(true);
+  };
+
+  const handleIssueBackfill = async () => {
+    if (!backfillInstance) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/instances/${backfillInstance.id}/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          command_type: 'BACKFILL',
+          payload: {
+            from_date: backfillDates.from,
+            to_date: backfillDates.to
+          }
+        })
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error?.message || 'Failed to issue backfill');
+      }
+      alert('Backfill instruction sent to agent queue.');
+      setIsBackfillModalOpen(false);
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading) return <div>Loading...</div>;
 
   return (
@@ -195,6 +239,15 @@ export default function DbInstancesPage() {
                   </svg>
                 </button>
                 <button
+                  onClick={() => handleOpenBackfillModal(instance)}
+                  className="p-1.5 text-muted-foreground hover:text-blue-400 bg-secondary/50 rounded-md transition-colors"
+                  title="Remote Backfill"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </button>
+                <button
                   onClick={() => handleDelete(instance.id, instance.name)}
                   className="p-1.5 text-muted-foreground hover:text-destructive bg-secondary/50 rounded-md transition-colors"
                   title="Deactivate"
@@ -235,13 +288,24 @@ export default function DbInstancesPage() {
               </div>
             </div>
 
-            <div className="mt-4 pt-4 border-t border-border flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Last Synced</span>
-              <span className={`font-medium ${instance.last_synced_at ? 'text-teal-400' : 'text-amber-400'}`}>
-                {instance.last_synced_at 
-                  ? new Date(instance.last_synced_at).toLocaleString() 
-                  : 'Never'}
-              </span>
+            <div className="mt-4 pt-4 border-t border-border flex flex-col gap-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Last Synced</span>
+                <span className={`font-medium ${instance.last_synced_at ? 'text-teal-400' : 'text-amber-400'}`}>
+                  {instance.last_synced_at 
+                    ? new Date(instance.last_synced_at).toLocaleString() 
+                    : 'Never'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Agent Status</span>
+                <span className={`font-medium flex items-center gap-1.5 ${instance.agent_last_seen_at && (new Date().getTime() - new Date(instance.agent_last_seen_at).getTime() < 300000) ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${instance.agent_last_seen_at && (new Date().getTime() - new Date(instance.agent_last_seen_at).getTime() < 300000) ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+                  {instance.agent_last_seen_at 
+                    ? `Seen ${new Date(instance.agent_last_seen_at).toLocaleTimeString()}`
+                    : 'Disconnected'}
+                </span>
+              </div>
             </div>
           </div>
         ))}
@@ -411,6 +475,67 @@ export default function DbInstancesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Backfill Modal */}
+      {isBackfillModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-card w-full max-w-md rounded-xl border border-border shadow-2xl overflow-hidden animate-slide-in">
+            <div className="px-6 py-4 border-b border-border flex justify-between items-center bg-secondary/30">
+              <h2 className="text-lg font-bold text-foreground">
+                Remote Backfill: {backfillInstance?.name}
+              </h2>
+              <button onClick={() => setIsBackfillModalOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Instruct the remote agent to fetch historical data for this period. 
+                Existing studies in this range will be updated.
+              </p>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">From Date</label>
+                  <input
+                    type="date"
+                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground font-mono text-sm"
+                    value={backfillDates.from}
+                    onChange={e => setBackfillDates({...backfillDates, from: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">To Date</label>
+                  <input
+                    type="date"
+                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground font-mono text-sm"
+                    value={backfillDates.to}
+                    onChange={e => setBackfillDates({...backfillDates, to: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3">
+                <button
+                  onClick={() => setIsBackfillModalOpen(false)}
+                  className="px-4 py-2 bg-secondary text-foreground rounded-lg hover:bg-secondary/80 transition-colors text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleIssueBackfill}
+                  disabled={submitting}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-all text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+                >
+                  {submitting ? 'Sending...' : 'Start Backfill'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

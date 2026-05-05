@@ -61,6 +61,11 @@ class StateDB:
                     created_at TEXT,
                     next_retry TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS settings (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT
+                );
             """)
 
     # ── CDC Cursor ─────────────────────────────────────────────────────────────
@@ -155,6 +160,25 @@ class StateDB:
                     next_retry = ?
                 WHERE id = ?
             """, (next_retry_iso, retry_id))
+
+
+    # ── Settings ───────────────────────────────────────────────────────────────
+
+    def get_setting(self, key: str) -> Optional[str]:
+        with self._conn() as conn:
+            row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+            return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._conn() as conn:
+            conn.execute("""
+                INSERT INTO settings (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """, (key, value))
+
+    def delete_setting(self, key: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM settings WHERE key = ?", (key,))
 
 
 def _utcnow() -> str:

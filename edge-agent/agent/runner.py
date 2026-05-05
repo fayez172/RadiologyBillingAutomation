@@ -51,15 +51,23 @@ def run_backfill(cfg: AgentConfig, state: StateDB) -> None:
                 logger.info("Backfill finished. Total offset: %d", offset)
                 break
 
-            progress = {
-                "total_pushed": offset + len(batch),
-                "batch_offset": offset,
-                "is_complete": False,
-            }
-            pusher.push_studies(batch, is_backfill=True, backfill_progress=progress)
+            cmd_id = state.get_setting("current_command_id")
+            pusher.push_studies(
+                batch, 
+                is_backfill=True, 
+                backfill_progress=progress,
+                command_id=cmd_id
+            )
             offset += len(batch)
             state.advance_backfill(cfg.instance_id, offset, len(batch))
             logger.info("Backfill pushed %d rows (offset=%d)", len(batch), offset)
+
+            # Check for cancellation via settings (may be updated by heartbeat or prev push)
+            if state.get_setting("cancel_requested") == "1":
+                logger.warning("Backfill cancelled by remote command.")
+                state.delete_setting("cancel_requested")
+                state.delete_setting("current_command_id")
+                break
     except PushError as exc:
         logger.error("Backfill push failed: %s — will resume on next run.", exc)
     finally:
@@ -190,24 +198,36 @@ def send_heartbeat(cfg: AgentConfig) -> None:
 def _handle_remote_command(response: dict | None, cfg: AgentConfig, state: StateDB | None) -> None:
     """
     The billing API can embed a command in any response.
-    Currently supported: 'backfill' with from_date/to_date.
+    Currently supported: 'backfill', 'cancel'.
     """
-    if not response:
+    if not response or state is None:
         return
     cmd = response.get("command")
     if not cmd:
         return
 
     cmd_type = cmd.get("type")
-    if cmd_type == "backfill" and state is not None:
+    cmd_id   = cmd.get("id")
+
+    if cmd_type == "cancel":
+        curr_id = state.get_setting("current_command_id")
+        if curr_id == cmd_id:
+            logger.info("Received cancellation for command: %s", cmd_id)
+            state.set_setting("cancel_requested", "1")
+        return
+
+    if cmd_type == "backfill":
         from_date = cmd.get("from_date")
         to_date   = cmd.get("to_date")
         logger.info(
-            "Remote backfill command received: %s → %s", from_date, to_date
+            "Remote backfill command received [%s]: %s → %s", cmd_id, from_date, to_date
         )
+        
+        state.set_setting("current_command_id", str(cmd_id))
         cfg.backfill.enabled   = True
         cfg.backfill.from_date = from_date
         cfg.backfill.to_date   = to_date
+        
         # Reset existing backfill state to start fresh
         with state._conn() as conn:
             conn.execute(
@@ -215,5 +235,8 @@ def _handle_remote_command(response: dict | None, cfg: AgentConfig, state: State
                 (cfg.instance_id,),
             )
         run_backfill(cfg, state)
+        
+        # Once finished (or cancelled), clear the command ID
+        state.delete_setting("current_command_id")
     else:
         logger.warning("Unknown remote command type: %s", cmd_type)

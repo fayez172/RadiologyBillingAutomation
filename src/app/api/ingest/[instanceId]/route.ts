@@ -48,6 +48,9 @@ interface IngestBody {
     batch_offset: number;
     is_complete: boolean;
   };
+  command_id?: string;
+  command_status?: "SUCCESS" | "FAILED" | "IN_PROGRESS";
+  command_error?: string;
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────────
@@ -102,6 +105,23 @@ export async function POST(
       where: { id: instanceId },
       data: { agent_last_seen_at: new Date(body.pushed_at) },
     });
+
+    // 4.1 Update Command Status & Progress
+    if (body.command_id) {
+      const isComplete = body.backfill_progress?.is_complete || body.command_status === "SUCCESS";
+      const isFailed = body.command_status === "FAILED";
+
+      await prisma.agentCommand.update({
+        where: { id: body.command_id },
+        data: {
+          status: isComplete ? "COMPLETED" : isFailed ? "FAILED" : "IN_PROGRESS",
+          error_message: body.command_error,
+          progress: body.backfill_progress?.is_complete ? 100 : undefined,
+          started_at: body.is_backfill ? new Date() : undefined,
+          completed_at: isComplete || isFailed ? new Date() : undefined,
+        },
+      });
+    }
 
     const logEntry = {
       instance_id: instanceId,
@@ -310,11 +330,41 @@ async function upsertRefData(instanceId: string, ref: RefDataPayload): Promise<n
 
 /**
  * Check if there's a pending admin command for this instance.
- * Commands are stored as a JSON string in DbInstance (or a separate table).
- * For now we use a simple approach: admin sets a flag in the DB,
- * and we return it once (then clear it).
  */
 async function getPendingCommand(instanceId: string): Promise<object | null> {
-  // Future: check a commands table. For now, returns null.
-  return null;
+  // 1. Check for cancellation requests first
+  const cancelCmd = await prisma.agentCommand.findFirst({
+    where: {
+      instance_id: instanceId,
+      status: "CANCELLED",
+    },
+    orderBy: { updated_at: "desc" },
+  });
+
+  if (cancelCmd) {
+    return { id: cancelCmd.id, type: "cancel" };
+  }
+
+  // 2. Check for PENDING commands
+  const command = await prisma.agentCommand.findFirst({
+    where: {
+      instance_id: instanceId,
+      status: "PENDING",
+    },
+    orderBy: { created_at: "asc" },
+  });
+
+  if (!command) return null;
+
+  // Mark as SENT so we don't deliver it twice
+  await prisma.agentCommand.update({
+    where: { id: command.id },
+    data: { status: "SENT" },
+  });
+
+  return {
+    id: command.id,
+    type: command.command_type.toLowerCase(),
+    ...(command.payload as object),
+  };
 }
