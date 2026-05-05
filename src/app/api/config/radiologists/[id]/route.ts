@@ -10,7 +10,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     if (!session?.user) return apiError('UNAUTHORIZED', 'Unauthorized', 401);
 
     const body = await req.json();
-    const { name, email, is_active } = body;
+    const { name, email, is_active, total_billed, total_paid, current_due, reason } = body;
 
     const existing = await prisma.radiologist.findUnique({
       where: { id: params.id }
@@ -23,15 +23,65 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       if (nameCheck) return apiError('BAD_REQUEST', 'Radiologist name already exists', 400);
     }
 
-    const updated = await prisma.radiologist.update({
-      where: { id: params.id },
-      data: {
-        name: name ? name.trim() : undefined,
-        email: email !== undefined ? (email?.trim() || null) : undefined,
-        is_active: is_active !== undefined ? is_active : undefined
-      }
-    });
+    // Check if we are doing a balance adjustment
+    const isBalanceAdjust = total_billed !== undefined || total_paid !== undefined || current_due !== undefined;
+    if (isBalanceAdjust && !reason) {
+      return apiError('BAD_REQUEST', 'Reason is required for balance adjustment', 400);
+    }
 
+    const updated = await prisma.$transaction(async (tx) => {
+      // Sync aliases
+      if (body.aliases && Array.isArray(body.aliases)) {
+        await tx.radiologistAlias.deleteMany({ where: { radiologist_id: params.id } });
+        await tx.radiologistAlias.createMany({
+          data: body.aliases.map((a: any) => ({
+            radiologist_id: params.id,
+            alias_name: (typeof a === 'string' ? a : a.alias_name).trim(),
+            instance_id: a.instance_id || null,
+            remote_id: a.remote_id ? Number(a.remote_id) : null
+          }))
+        });
+      }
+
+      const radUpdate = await tx.radiologist.update({
+        where: { id: params.id },
+        data: {
+          name: name ? name.trim() : undefined,
+          email: email !== undefined ? (email?.trim() || null) : undefined,
+          is_active: is_active !== undefined ? is_active : undefined,
+          total_billed: total_billed !== undefined ? Number(total_billed) : undefined,
+          total_paid: total_paid !== undefined ? Number(total_paid) : undefined,
+          current_due: current_due !== undefined ? Number(current_due) : undefined
+        }
+      });
+
+      if (isBalanceAdjust) {
+        await tx.auditLog.create({
+          data: {
+            user_id: session.user.id,
+            action: 'BALANCE_ADJUSTMENT',
+            entity: 'RADIOLOGIST',
+            entity_id: params.id,
+            details: JSON.stringify({
+              reason,
+              old: { 
+                billed: existing.total_billed, 
+                paid: existing.total_paid, 
+                due: existing.current_due 
+              },
+              new: { 
+                billed: total_billed ?? existing.total_billed, 
+                paid: total_paid ?? existing.total_paid, 
+                due: current_due ?? existing.current_due 
+              }
+            })
+          }
+        });
+      }
+
+      return radUpdate;
+    });
+    
     return success(updated);
   } catch (err: any) {
     console.error('[RADIOLOGISTS_PUT]', err);

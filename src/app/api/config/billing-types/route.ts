@@ -8,10 +8,14 @@ const CACHE_KEY = 'config:billing_types';
 
 export async function GET() {
   try {
-    // 1. Try Cache First
-    const cached = await redis.get(CACHE_KEY);
-    if (cached) {
-      return NextResponse.json(JSON.parse(cached));
+    // 1. Try Cache First (Safe-fail)
+    try {
+      const cached = await redis.get(CACHE_KEY);
+      if (cached) {
+        return NextResponse.json(JSON.parse(cached));
+      }
+    } catch (cacheErr) {
+      console.warn('[REDIS] GET failed, falling back to database:', cacheErr);
     }
 
     // 2. Database Fallback
@@ -26,8 +30,12 @@ export async function GET() {
       default_radiologist_price: Number(t.default_radiologist_price),
     }));
 
-    // 3. Set Cache (1 hour expiration)
-    await redis.set(CACHE_KEY, JSON.stringify(serializedTypes), 'EX', 3600);
+    // 3. Set Cache (Safe-fail)
+    try {
+      await redis.set(CACHE_KEY, JSON.stringify(serializedTypes), 'EX', 3600);
+    } catch (cacheErr) {
+      console.warn('[REDIS] SET failed:', cacheErr);
+    }
 
     return NextResponse.json(serializedTypes);
   } catch (error: any) {

@@ -54,7 +54,7 @@ export async function POST(req: Request) {
           subtotal: Number(subtotal),
           previous_due: Number(previous_due),
           total_due: Number(total_due),
-          status: 'FINALIZED' as any,
+          status: 'FINAL' as any,
           finalized_at: new Date(),
           created_by: session.user.id,
           lines: {

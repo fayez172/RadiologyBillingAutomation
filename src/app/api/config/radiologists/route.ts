@@ -20,6 +20,7 @@ export async function GET(req: Request) {
         ]
       } : undefined,
       include: {
+        aliases: true,
         _count: {
           select: { aliases: true, prices: true }
         }
@@ -59,8 +60,13 @@ export async function POST(req: Request) {
       data: {
         name: name.trim(),
         email: email?.trim() || null,
+        is_active: body.is_active !== undefined ? body.is_active : true,
         aliases: aliases && Array.isArray(aliases) ? {
-          create: aliases.map((alias: string) => ({ alias_name: alias.trim() }))
+          create: aliases.map((alias: any) => ({ 
+            alias_name: (typeof alias === 'string' ? alias : alias.alias_name).trim(),
+            instance_id: alias.instance_id || null,
+            remote_id: alias.remote_id ? Number(alias.remote_id) : null
+          }))
         } : undefined
       },
       include: {

@@ -68,9 +68,43 @@ export async function PUT(req: Request) {
       },
       data: {
         billing_type: type,
-        billing_type_dr: type, // Optional: default to same type
+        billing_type_dr: type,
       }
     });
+
+    // Auto-create persistent mapping records so future studies are auto-mapped
+    // Find all distinct modalities for this procedure_raw to create specific mappings
+    const distinctProcedures = await prisma.remoteProcedure.findMany({
+      where: { name: procedure_raw, is_active: true },
+      include: { parent_modality: true }
+    });
+    
+    // Group by modality code/name
+    const modalities = Array.from(new Set(distinctProcedures.map(p => 
+      p.parent_modality?.code || p.parent_modality?.display_name || 'UNKNOWN'
+    )));
+
+    for (const mod of modalities) {
+      await prisma.mapping.upsert({
+        where: {
+          modality_procedure_pattern: {
+            modality: mod,
+            procedure_pattern: procedure_raw
+          }
+        },
+        update: {
+          type: type,
+          type_dr: type,
+        },
+        create: {
+          modality: mod,
+          procedure_pattern: procedure_raw,
+          type: type,
+          type_dr: type,
+          priority: 100 // High priority for manual master mappings
+        }
+      });
+    }
     
     // Attempt background remap of studies
     import('@/lib/mapping-engine').then(m => m.mapUnmappedStudies()).catch(console.error);

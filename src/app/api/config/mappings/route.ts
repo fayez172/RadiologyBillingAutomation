@@ -52,10 +52,14 @@ export async function POST(req: Request) {
       return error('BAD_REQUEST', 'Missing required fields', 400);
     }
 
+    const pattern = procedure_pattern.trim().toUpperCase()
+      .replace(/\s+/g, ' ')
+      .replace(/[^\w\s-]/g, '');
+
     const mapping = await prisma.mapping.create({
       data: {
-        modality: modality.trim(),
-        procedure_pattern: procedure_pattern.trim(),
+        modality: modality.trim().toUpperCase(),
+        procedure_pattern: is_regex ? procedure_pattern.trim() : pattern,
         is_regex: Boolean(is_regex),
         type: type.trim(),
         type_dr: type_dr.trim(),

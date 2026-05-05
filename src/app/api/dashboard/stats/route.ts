@@ -50,7 +50,7 @@ export async function GET(req: Request) {
       const invoicesInMonth = await prisma.invoice.aggregate({
         where: {
           period_end: { gte: start, lte: end },
-          status: 'FINALIZED' as any
+          status: 'FINAL' as any
         },
         _sum: { subtotal: true }
       });
@@ -71,11 +71,33 @@ export async function GET(req: Request) {
       where: { mapping_confidence: 'UNMAPPED' }
     });
 
+    // 6. Radiologist Payable Summary
+    const radiologists = await prisma.radiologist.findMany({
+      select: {
+        total_billed: true,
+        total_paid: true,
+        current_due: true
+      }
+    });
+
+    let radTotalFees = 0;
+    let radTotalPaid = 0;
+    let radTotalDue = 0;
+
+    radiologists.forEach(r => {
+      radTotalFees += Number(r.total_billed);
+      radTotalPaid += Number(r.total_paid);
+      radTotalDue += Number(r.current_due);
+    });
+
     return success({
       summary: {
         totalBilled,
         totalPaid,
-        totalDue,
+        totalDue, 
+        radTotalFees,
+        radTotalPaid,
+        radTotalDue,
         studyCount,
         unmappedCount
       },
