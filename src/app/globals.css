@@ -1,138 +1,229 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=Noto+Sans:wght@300;400;500;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   STANDARDIZED COLOR SCHEME — Light & Dark Mode
+   
+   All values are raw HSL (H S% L%) without hsl() wrapper.
+   Tailwind config wraps them: hsl(var(--token)).
+   
+   Palette:
+     Primary   = Teal (#0d9488 → 174 84% 32%)   – brand, CTAs
+     Accent    = Amber/Gold (#d97706 → 38 92% 50%) – warnings, highlights
+     Destructive = Red (#dc2626 → 0 72% 51%)      – errors, deletes
+   ========================================================================== */
+
 @layer base {
+  /* ── LIGHT MODE ── */
   :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --destructive-foreground: 210 40% 98%;
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --radius: 0.625rem;
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --background:           0 0% 98%;           /* #fafafa — soft off-white */
+    --foreground:           220 14% 10%;        /* #171c26 — near-black */
+
+    --card:                 0 0% 100%;          /* #ffffff — pure white */
+    --card-foreground:      220 14% 10%;
+
+    --popover:              0 0% 100%;          /* #ffffff */
+    --popover-foreground:   220 14% 10%;
+
+    --primary:              174 84% 32%;        /* teal-600 */
+    --primary-foreground:   0 0% 100%;
+
+    --secondary:            210 20% 95%;        /* light slate */
+    --secondary-foreground: 220 14% 20%;
+
+    --muted:                210 16% 93%;        /* muted gray */
+    --muted-foreground:     215 14% 46%;        /* mid-gray text */
+
+    --accent:               174 60% 95%;        /* teal tint */
+    --accent-foreground:    174 84% 25%;
+
+    --destructive:          0 72% 51%;          /* red-600 */
+    --destructive-foreground: 0 0% 100%;
+
+    --border:               214 20% 84%;        /* light border */
+    --input:                214 20% 84%;
+    --ring:                 174 84% 32%;        /* teal focus ring */
+
+    --radius:               0.625rem;
+
+    /* Chart palette */
+    --chart-1:              174 84% 32%;
+    --chart-2:              38 92% 50%;
+    --chart-3:              0 72% 51%;
+    --chart-4:              210 20% 60%;
+    --chart-5:              280 60% 50%;
   }
-  .theme {
-    --font-heading: var(--font-sans);
-    --font-sans: var(--font-sans);
-  }
+
+  /* ── DARK MODE ── */
   .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background:           222 20% 6%;         /* #0e1117 — deep dark */
+    --foreground:           0 0% 96%;           /* #f5f5f5 */
+
+    --card:                 222 20% 10%;        /* #151b28 — slightly raised */
+    --card-foreground:      0 0% 96%;
+
+    --popover:              222 20% 14%;        /* #1e2536 — elevated layer */
+    --popover-foreground:   0 0% 96%;
+
+    --primary:              174 72% 46%;        /* teal-500 lighter for dark bg */
+    --primary-foreground:   0 0% 100%;
+
+    --secondary:            220 16% 16%;        /* dark slate */
+    --secondary-foreground: 0 0% 90%;
+
+    --muted:                220 16% 16%;
+    --muted-foreground:     215 14% 65%;        /* readable gray on dark */
+
+    --accent:               38 85% 55%;         /* warm amber */
+    --accent-foreground:    0 0% 5%;
+
+    --destructive:          0 62% 45%;          /* muted red for dark */
+    --destructive-foreground: 0 0% 96%;
+
+    --border:               222 16% 22%;        /* subtle edge */
+    --input:                222 16% 18%;
+    --ring:                 174 72% 46%;
+
+    --chart-1:              174 72% 46%;
+    --chart-2:              0 62% 45%;
+    --chart-3:              38 85% 55%;
+    --chart-4:              220 60% 50%;
+    --chart-5:              280 50% 55%;
   }
+
+  /* ── RESET ── */
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground min-h-screen text-base antialiased selection:bg-primary/30;
   }
+
+  /* Dark mode gets the radial gradient ambiance */
+  .dark body {
+    background-image: radial-gradient(
+      ellipse at top,
+      hsl(222 30% 14%) 0%,
+      hsl(var(--background)) 70%,
+      hsl(var(--background)) 100%
+    );
+  }
+
   html {
     @apply font-sans;
   }
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
-  }
+/* ── TYPOGRAPHY ── */
+.theme {
+  --font-heading: 'Figtree', sans-serif;
+  --font-sans: 'Noto Sans', sans-serif;
 }
 
-/* Scrollbar styling */
+
+/* ==========================================================================
+   COMPONENT OVERRIDES — Popover, Dropdown, Dialog
+   These ensure consistent theming regardless of shadcn/base-ui version.
+   ========================================================================== */
+
+/* ── Popover & Dialog backdrop ── */
+[data-slot="dialog-content"],
+[data-slot="popover-content"] {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 10px 40px -10px rgba(0,0,0,0.25);
+}
+
+/* ── Select dropdown ── */
+[data-slot="select-content"] {
+  background-color: hsl(var(--popover)) !important;
+  color: hsl(var(--popover-foreground)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: 0 8px 30px -8px rgba(0,0,0,0.3) !important;
+  z-index: 9999 !important;
+}
+
+/* ── Menu / Listbox items ── */
+[role="menu"],
+[role="listbox"] {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 8px 30px -8px rgba(0,0,0,0.3);
+  z-index: 9999;
+}
+
+/* ── Menu item hover ── */
+[role="menuitem"],
+[role="option"],
+[data-slot="select-item"] {
+  color: hsl(var(--popover-foreground));
+  transition: background-color 150ms, color 150ms;
+}
+[role="menuitem"]:hover,
+[role="menuitem"]:focus,
+[role="option"]:hover,
+[role="option"]:focus,
+[data-slot="select-item"]:hover,
+[data-slot="select-item"]:focus {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+/* ── Table header pinning ── */
+[data-slot="table-header"] {
+  background-color: hsl(var(--background));
+}
+
+
+/* ==========================================================================
+   SCROLLBAR — Light & Dark
+   ========================================================================== */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: hsl(222 47% 6%);
+  background: hsl(var(--background));
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(217 33% 25%);
+  background: hsl(var(--border));
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(217 33% 35%);
+  background: hsl(var(--muted-foreground));
 }
 
-/* Smooth transitions */
+
+/* ==========================================================================
+   UTILITY CLASSES
+   ========================================================================== */
+
+/* Smooth sidebar transition */
 .transition-sidebar {
   transition: width 200ms ease, transform 200ms ease;
 }
 
-/* Glassmorphism card effect */
+/* Glassmorphism card (dark mode speciality) */
 .glass-card {
   background: linear-gradient(
     135deg,
-    hsla(217, 33%, 17%, 0.6),
-    hsla(222, 47%, 8%, 0.8)
+    hsl(var(--card) / 0.6),
+    hsl(var(--background) / 0.8)
   );
   backdrop-filter: blur(12px);
-  border: 1px solid hsla(217, 33%, 25%, 0.3);
+  border: 1px solid hsl(var(--border) / 0.4);
 }
 
 /* Glow effects */
 .glow-teal {
-  box-shadow: 0 0 20px hsla(168, 76%, 42%, 0.15);
+  box-shadow: 0 0 20px hsl(174 76% 42% / 0.15);
 }
 
 /* Animation keyframes */
@@ -152,4 +243,13 @@
 
 .animate-slide-in {
   animation: slideInLeft 0.2s ease-out;
+}
+
+/* Custom scrollbar utility class */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 2px;
 }

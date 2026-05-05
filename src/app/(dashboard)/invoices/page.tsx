@@ -49,16 +49,17 @@ export default function InvoicesListPage() {
           <CardDescription>All finalized invoices previously generated for all clients.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow className="border-border/50 hover:bg-transparent">
-                <TableHead>Invoice #</TableHead>
-                <TableHead>Client</TableHead>
-                <TableHead>Billing Period</TableHead>
-                <TableHead className="text-right">Total Owed (BDT)</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
+          <div className="relative h-[calc(100vh-350px)] overflow-auto border rounded-md custom-scrollbar bg-black/40 shadow-inner">
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur shadow-sm">
+                <TableRow className="border-border/50 hover:bg-transparent">
+                  <TableHead className="font-bold py-4 text-foreground">Invoice #</TableHead>
+                  <TableHead className="font-bold text-foreground">Client</TableHead>
+                  <TableHead className="font-bold text-foreground">Billing Period</TableHead>
+                  <TableHead className="text-right font-bold text-foreground">Total Owed (BDT)</TableHead>
+                  <TableHead className="text-right font-bold text-foreground">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
@@ -97,7 +98,8 @@ export default function InvoicesListPage() {
               )}
             </TableBody>
           </Table>
-        </CardContent>
+        </div>
+      </CardContent>
       </Card>
     </div>
   );

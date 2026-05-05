@@ -12,52 +12,107 @@ import {
 } from 'recharts';
 import { 
   Loader2, TrendingUp, Users, Activity, FileText, 
-  Upload, Database, Plus, Search, CheckCircle
+  Upload, Database, Plus, Search, CheckCircle, Trash2
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 function QuickAction({ 
   title, 
   subtitle, 
   href, 
+  onClick,
   icon: Icon, 
-  colorClass 
+  colorClass,
+  disabled
 }: { 
   title: string; 
   subtitle: string; 
-  href: string; 
+  href?: string; 
+  onClick?: () => void;
   icon: any; 
   colorClass: string;
+  disabled?: boolean;
 }) {
-  return (
-    <Link href={href} className="glass-card rounded-xl p-5 text-left hover:border-primary/30 transition-all group">
+  const content = (
+    <div className={`glass-card rounded-xl p-5 text-left transition-all group ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary/30 cursor-pointer'}`}>
       <div className={`w-10 h-10 rounded-lg ${colorClass} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
         <Icon className="w-5 h-5" />
       </div>
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
-    </Link>
+    </div>
   );
+
+  if (href && !disabled) {
+    return <Link href={href}>{content}</Link>;
+  }
+
+  return <button onClick={onClick} disabled={disabled} className="w-full block appearance-none bg-transparent border-none p-0">{content}</button>;
 }
+
+export const dynamic = 'force-dynamic';
 
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+
+  const fetchStats = async () => {
+    try {
+      const res = await fetch('/api/dashboard/stats');
+      if (res.ok) setStats((await res.json()).data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const res = await fetch('/api/dashboard/stats');
-        if (res.ok) setStats((await res.json()).data);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchStats();
   }, []);
+
+  const handleSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    toast.loading('Starting manual sync...');
+    try {
+      const res = await fetch('/api/admin/sync', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}) 
+      });
+      if (!res.ok) throw new Error('Sync failed');
+      toast.success('Sync completed successfully');
+      fetchStats();
+    } catch (e) {
+      toast.error('Sync failed');
+    } finally {
+      setSyncing(false);
+      toast.dismiss();
+    }
+  };
+
+  const handlePurge = async () => {
+    if (syncing) return;
+    if (!confirm("CRITICAL: This will delete ALL studies and reset the system. Are you sure?")) return;
+    
+    setSyncing(true);
+    toast.loading('Purging system data...');
+    try {
+      const res = await fetch('/api/admin/sync', { method: 'DELETE' });
+      if (!res.ok) throw new Error('Purge failed');
+      toast.success('System purged. Starting fresh sync...');
+      handleSync();
+    } catch (e) {
+      toast.error('Purge failed');
+      setSyncing(false);
+    } finally {
+      toast.dismiss();
+    }
+  };
 
   if (loading) {
     return (
@@ -122,10 +177,23 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-orange-400">৳{summary.totalDue.toLocaleString()}</div>
-            <p className="text-xs text-orange-500/60">Outstanding balanced due</p>
+            <p className="text-xs text-orange-500/60">Outstanding hospital due</p>
           </CardContent>
         </Card>
 
+        <Card className="bg-amber-950/10 border-amber-900/40 backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-amber-500">Radiologist Payable (AP)</CardTitle>
+            <Users className="h-4 w-4 text-amber-500 opacity-50" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-400">৳{summary.radTotalDue.toLocaleString()}</div>
+            <p className="text-xs text-amber-500/60">Outstanding doctor fees</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
         <Card className="bg-black/20 border-border/50 backdrop-blur-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-amber-500">Pending Mappings</CardTitle>
@@ -138,6 +206,17 @@ export default function DashboardPage() {
             <p className="text-xs text-muted-foreground">Requires manual classification</p>
           </CardContent>
         </Card>
+
+        <Card className="bg-black/20 border-border/50 backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Study Volume</CardTitle>
+            <FileText className="h-4 w-4 text-muted-foreground opacity-50" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{summary.studyCount.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">Total records synced</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Quick Actions Integration */}
@@ -146,27 +225,43 @@ export default function DashboardPage() {
           <Activity className="w-5 h-5 text-teal-500" />
           Quick Actions
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <QuickAction 
-            title="Upload Studies" 
-            subtitle="Import CSV/XLSX volume files" 
+            title="Upload Files" 
+            subtitle="Import volume XLSX" 
             href="/studies/upload" 
             icon={Upload} 
             colorClass="bg-teal-500/10 text-teal-400 group-hover:bg-teal-500/20"
           />
           <QuickAction 
-            title="Sync from MSSQL" 
-            subtitle="Manual pull from production" 
-            href="/config/db-instances" 
-            icon={Database} 
+            title="Manual Sync" 
+            subtitle="Trigger remote pull" 
+            onClick={handleSync}
+            disabled={syncing}
+            icon={syncing ? Loader2 : Database} 
             colorClass="bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20"
           />
           <QuickAction 
             title="New Invoice" 
-            subtitle="Create billing statement" 
+            subtitle="Create billing" 
             href="/invoices/builder" 
             icon={Plus} 
             colorClass="bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500/20"
+          />
+          <QuickAction 
+            title="Unmapped" 
+            subtitle="Classify procedures" 
+            href="/config/unmapped-procedures" 
+            icon={Search} 
+            colorClass="bg-amber-500/10 text-amber-400 group-hover:bg-amber-500/20"
+          />
+          <QuickAction 
+            title="Purge System" 
+            subtitle="Wipe & Refresh" 
+            onClick={handlePurge}
+            disabled={syncing}
+            icon={Trash2} 
+            colorClass="bg-red-500/10 text-red-400 group-hover:bg-red-500/20"
           />
         </div>
       </section>

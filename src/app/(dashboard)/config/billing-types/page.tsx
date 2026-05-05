@@ -22,7 +22,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Edit2, Save, X, Trash2 } from "lucide-react";
+import { Plus, Edit2, Save, X, Trash2, Check, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
 interface BillingType {
@@ -43,6 +43,7 @@ export default function BillingTypesPage() {
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingData, setEditingData] = useState<Partial<BillingType> | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     display_name: "",
@@ -55,7 +56,7 @@ export default function BillingTypesPage() {
 
   useEffect(() => {
     fetchTypes();
-    fetch('/api/reference/modalities').then(res => res.json()).then(data => setAvailableModalities(data || []));
+    fetch('/api/reference/modalities').then(res => res.json()).then(data => setAvailableModalities(data.data || []));
   }, []);
 
   const fetchTypes = async () => {
@@ -75,7 +76,11 @@ export default function BillingTypesPage() {
       const res = await fetch("/api/config/billing-types", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          default_hospital_price: Number(formData.default_hospital_price),
+          default_radiologist_price: Number(formData.default_radiologist_price),
+        }),
       });
       if (!res.ok) throw new Error("Failed to create");
       toast({ title: "Success", description: "Billing type created successfully" });
@@ -87,16 +92,18 @@ export default function BillingTypesPage() {
     }
   };
 
-  const handleUpdate = async (id: string, data: Partial<BillingType>) => {
+  const handleUpdate = async (id: string) => {
+    if (!editingData) return;
     try {
       const res = await fetch(`/api/config/billing-types/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(editingData),
       });
       if (!res.ok) throw new Error("Failed to update");
       toast({ title: "Success", description: "Updated successfully" });
       setEditingId(null);
+      setEditingData(null);
       fetchTypes();
     } catch (error) {
       toast({ title: "Error", description: "Failed to update", variant: "destructive" });
@@ -124,6 +131,16 @@ export default function BillingTypesPage() {
       default_radiologist_price: "0",
       is_billable: true,
     });
+  };
+
+  const startEditing = (type: BillingType) => {
+    setEditingId(type.id);
+    setEditingData({
+      display_name: type.display_name,
+      modalities: type.modalities,
+      default_hospital_price: type.default_hospital_price,
+      default_radiologist_price: type.default_radiologist_price,
+    } as any);
   };
 
   return (
@@ -166,14 +183,13 @@ export default function BillingTypesPage() {
               </div>
               <div className="space-y-2">
                 <Label>Modalities</Label>
-                <div className="flex flex-wrap gap-2 mt-1">
+                <div className="border rounded-md p-2 max-h-[150px] overflow-y-auto space-y-1 bg-background/50">
                   {availableModalities.map(m => {
-                    const selected = formData.modalities.split(',').map(s=>s.trim()).includes(m.id);
+                    const selected = formData.modalities.split(',').map(s=>s.trim()).filter(Boolean).includes(m.id);
                     return (
-                      <Badge 
+                      <div 
                         key={m.id} 
-                        variant={selected ? "default" : "outline"}
-                        className={`cursor-pointer ${selected ? 'bg-primary/20 text-primary border-primary/30' : 'hover:bg-muted/50'}`}
+                        className="flex items-center space-x-2 p-1 hover:bg-muted/50 rounded cursor-pointer transition-colors"
                         onClick={() => {
                           let arr = formData.modalities.split(',').map(s=>s.trim()).filter(Boolean);
                           if (arr.includes(m.id)) {
@@ -184,11 +200,15 @@ export default function BillingTypesPage() {
                           setFormData({ ...formData, modalities: arr.join(', ') });
                         }}
                       >
-                        {m.name || m.id}
-                      </Badge>
+                        <div className={`w-4 h-4 border rounded flex items-center justify-center transition-colors ${selected ? 'bg-primary border-primary' : 'border-muted-foreground/30'}`}>
+                          {selected && <Check className="w-3 h-3 text-primary-foreground" />}
+                        </div>
+                        <span className="text-sm">{m.name || m.id}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">{m.id}</span>
+                      </div>
                     );
                   })}
-                  {availableModalities.length === 0 && <span className="text-xs text-muted-foreground">Loading...</span>}
+                  {availableModalities.length === 0 && <span className="text-xs text-muted-foreground p-2 block italic text-center">Loading modalities...</span>}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -226,21 +246,21 @@ export default function BillingTypesPage() {
         </Dialog>
       </div>
 
-      <Card className="border-none shadow-md overflow-hidden bg-background/50 backdrop-blur">
+      <Card className="border-none shadow-md overflow-hidden bg-background/50 backdrop-blur relative">
         <CardHeader className="bg-card/50 border-b">
           <CardTitle className="text-lg font-medium">Standard Types Configuration</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 max-h-[600px] overflow-y-auto">
           <Table>
-            <TableHeader className="bg-muted/50">
-              <TableRow>
-                <TableHead className="w-[100px]">Status</TableHead>
-                <TableHead>Code Name</TableHead>
-                <TableHead>Display Name</TableHead>
-                <TableHead>Modalities</TableHead>
-                <TableHead className="text-right">Hospital (Default)</TableHead>
-                <TableHead className="text-right">Rad (Default)</TableHead>
-                <TableHead className="w-[120px] text-right">Actions</TableHead>
+            <TableHeader className="bg-muted/80 backdrop-blur-sm sticky top-0 z-20 shadow-sm border-b">
+              <TableRow className="hover:bg-transparent border-none">
+                <TableHead className="w-[100px] font-bold text-foreground">Status</TableHead>
+                <TableHead className="font-bold text-foreground">Code Name</TableHead>
+                <TableHead className="font-bold text-foreground">Display Name</TableHead>
+                <TableHead className="font-bold text-foreground">Modalities</TableHead>
+                <TableHead className="text-right font-bold text-foreground">Hospital (Default)</TableHead>
+                <TableHead className="text-right font-bold text-foreground">Rad (Default)</TableHead>
+                <TableHead className="w-[120px] text-right font-bold text-foreground">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -271,10 +291,10 @@ export default function BillingTypesPage() {
                     </TableCell>
                     <TableCell className="font-mono text-xs">{type.name}</TableCell>
                     <TableCell>
-                      {editingId === type.id ? (
+                      {editingId === type.id && editingData ? (
                         <Input 
-                          defaultValue={type.display_name} 
-                          id={`display_name_${type.id}`}
+                          value={editingData.display_name} 
+                          onChange={e => setEditingData({ ...editingData, display_name: e.target.value })}
                           className="h-8 py-0"
                         />
                       ) : (
@@ -282,22 +302,42 @@ export default function BillingTypesPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {editingId === type.id ? (
-                        <Input 
-                          defaultValue={type.modalities} 
-                          id={`modalities_${type.id}`}
-                          className="h-8 py-0"
-                        />
+                      {editingId === type.id && editingData ? (
+                        <div className="border rounded-md p-1 max-h-[100px] overflow-y-auto space-y-1 bg-background/50 text-[10px]">
+                          {availableModalities.map(m => {
+                            const selected = (editingData.modalities || '').split(',').map(s=>s.trim()).filter(Boolean).includes(m.id);
+                            return (
+                              <div 
+                                key={m.id} 
+                                className="flex items-center space-x-2 p-0.5 hover:bg-muted/50 rounded cursor-pointer"
+                                onClick={() => {
+                                  let arr = (editingData.modalities || '').split(',').map(s=>s.trim()).filter(Boolean);
+                                  if (arr.includes(m.id)) {
+                                     arr = arr.filter(a => a !== m.id);
+                                  } else {
+                                     arr.push(m.id);
+                                  }
+                                  setEditingData({ ...editingData, modalities: arr.join(', ') });
+                                }}
+                              >
+                                <div className={`w-3 h-3 border rounded flex items-center justify-center transition-colors ${selected ? 'bg-primary border-primary' : 'border-muted-foreground/30'}`}>
+                                  {selected && <Check className="w-2 h-2 text-primary-foreground" />}
+                                </div>
+                                <span>{m.id}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">{type.modalities}</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {editingId === type.id ? (
+                      {editingId === type.id && editingData ? (
                         <Input 
                           type="number"
-                          defaultValue={type.default_hospital_price} 
-                          id={`price_h_${type.id}`}
+                          value={editingData.default_hospital_price ?? ''} 
+                          onChange={e => setEditingData({ ...editingData, default_hospital_price: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0 } as any)}
                           className="h-8 py-0 w-20 ml-auto"
                         />
                       ) : (
@@ -305,11 +345,11 @@ export default function BillingTypesPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right font-mono text-muted-foreground">
-                      {editingId === type.id ? (
+                      {editingId === type.id && editingData ? (
                         <Input 
                           type="number"
-                          defaultValue={type.default_radiologist_price} 
-                          id={`price_r_${type.id}`}
+                          value={editingData.default_radiologist_price ?? ''} 
+                          onChange={e => setEditingData({ ...editingData, default_radiologist_price: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0 } as any)}
                           className="h-8 py-0 w-20 ml-auto"
                         />
                       ) : (
@@ -323,18 +363,7 @@ export default function BillingTypesPage() {
                             variant="ghost" 
                             size="icon" 
                             className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-500/10"
-                            onClick={() => {
-                              const display_name = (document.getElementById(`display_name_${type.id}`) as HTMLInputElement).value;
-                              const modalities = (document.getElementById(`modalities_${type.id}`) as HTMLInputElement).value;
-                              const hospital = (document.getElementById(`price_h_${type.id}`) as HTMLInputElement).value;
-                              const rad = (document.getElementById(`price_r_${type.id}`) as HTMLInputElement).value;
-                              handleUpdate(type.id, { 
-                                display_name, 
-                                modalities,
-                                default_hospital_price: parseFloat(hospital),
-                                default_radiologist_price: parseFloat(rad)
-                              });
-                            }}
+                            onClick={() => handleUpdate(type.id)}
                           >
                             <Save className="w-4 h-4" />
                           </Button>
@@ -342,7 +371,10 @@ export default function BillingTypesPage() {
                             variant="ghost" 
                             size="icon" 
                             className="h-8 w-8 text-red-500 hover:text-red-600"
-                            onClick={() => setEditingId(null)}
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditingData(null);
+                            }}
                           >
                             <X className="w-4 h-4" />
                           </Button>
@@ -353,7 +385,7 @@ export default function BillingTypesPage() {
                             variant="ghost" 
                             size="icon" 
                             className="h-8 w-8 group-hover:bg-blue-500/10 group-hover:text-blue-500"
-                            onClick={() => setEditingId(type.id)}
+                            onClick={() => startEditing(type)}
                           >
                             <Edit2 className="w-4 h-4" />
                           </Button>

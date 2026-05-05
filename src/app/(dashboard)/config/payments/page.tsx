@@ -13,9 +13,10 @@ import { Loader2, Plus, Receipt, History } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function PaymentsPage() {
-  const [clients, setClients] = useState<any[]>([]);
-  const [selectedClient, setSelectedClient] = useState<string>('');
-  const [clientData, setClientData] = useState<any>(null);
+  const [type, setType] = useState<'HOSPITAL' | 'RADIOLOGIST'>('HOSPITAL');
+  const [entities, setEntities] = useState<any[]>([]);
+  const [selectedId, setSelectedId] = useState<string>('');
+  const [entityData, setEntityData] = useState<any>(null);
   const [payments, setPayments] = useState<any[]>([]);
   
   const [loading, setLoading] = useState(true);
@@ -27,25 +28,27 @@ export default function PaymentsPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchClients();
-  }, []);
+    fetchEntities();
+    setSelectedId(''); // Reset selection when type changes
+  }, [type]);
 
   useEffect(() => {
-    if (selectedClient) {
-      const client = clients.find(c => c.id === selectedClient);
-      setClientData(client);
-      fetchPayments(selectedClient);
+    if (selectedId) {
+      const entity = entities.find(e => e.id === selectedId);
+      setEntityData(entity);
+      fetchPayments(selectedId);
     } else {
-      setClientData(null);
+      setEntityData(null);
       setPayments([]);
     }
-  }, [selectedClient, clients]);
+  }, [selectedId, entities]);
 
-  const fetchClients = async () => {
+  const fetchEntities = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/config/clients');
-      if (res.ok) setClients((await res.json()).data);
+      const endpoint = type === 'HOSPITAL' ? '/api/config/clients' : '/api/config/radiologists';
+      const res = await fetch(endpoint);
+      if (res.ok) setEntities((await res.json()).data);
     } catch (e) {
       console.error(e);
     } finally {
@@ -53,10 +56,13 @@ export default function PaymentsPage() {
     }
   };
 
-  const fetchPayments = async (clientId: string) => {
+  const fetchPayments = async (id: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/config/clients/${clientId}/payments`);
+      const endpoint = type === 'HOSPITAL' 
+        ? `/api/config/clients/${id}/payments` 
+        : `/api/config/radiologists/${id}/payments`;
+      const res = await fetch(endpoint);
       if (res.ok) setPayments((await res.json()).data);
     } catch (e) {
       console.error(e);
@@ -75,7 +81,11 @@ export default function PaymentsPage() {
         note: formData.note
       };
 
-      const res = await fetch(`/api/config/clients/${selectedClient}/payments`, {
+      const endpoint = type === 'HOSPITAL'
+        ? `/api/config/clients/${selectedId}/payments`
+        : `/api/config/radiologists/${selectedId}/payments`;
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -88,8 +98,8 @@ export default function PaymentsPage() {
       
       // Refresh
       setFormData({ amount: '', payment_date: new Date().toISOString().split('T')[0], reference: '', note: '' });
-      await fetchClients(); // refresh client balances
-      await fetchPayments(selectedClient);
+      await fetchEntities(); // refresh balances
+      await fetchPayments(selectedId);
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
@@ -97,31 +107,58 @@ export default function PaymentsPage() {
     }
   };
 
+  const isHospital = type === 'HOSPITAL';
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Payments & Ledger</h1>
-          <p className="text-muted-foreground">Track hospital accounts receivable and record incoming payments.</p>
+          <p className="text-muted-foreground">
+            {isHospital 
+              ? 'Track hospital accounts receivable and record incoming payments.' 
+              : 'Track radiologist accounts payable and record outgoing payments.'}
+          </p>
         </div>
         
         <div className="flex items-center gap-3 w-full md:w-auto">
-          <Select value={selectedClient} onValueChange={(value) => setSelectedClient(value || '')}>
+          <div className="flex bg-black/40 p-1 rounded-lg border border-border/50">
+            <Button 
+              variant={isHospital ? 'secondary' : 'ghost'} 
+              size="sm" 
+              onClick={() => setType('HOSPITAL')}
+              className={isHospital ? 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30' : ''}
+            >
+              Hospitals
+            </Button>
+            <Button 
+              variant={!isHospital ? 'secondary' : 'ghost'} 
+              size="sm" 
+              onClick={() => setType('RADIOLOGIST')}
+              className={!isHospital ? 'bg-amber-600/20 text-amber-400 hover:bg-amber-600/30' : ''}
+            >
+              Radiologists
+            </Button>
+          </div>
+
+          <Select value={selectedId} onValueChange={(value) => setSelectedId(value || '')}>
             <SelectTrigger className="w-[300px] bg-black/20 border-border/50">
-              <SelectValue placeholder="Select a hospital ledger..." />
+              <SelectValue placeholder={`Select a ${isHospital ? 'hospital' : 'radiologist'}...`} />
             </SelectTrigger>
             <SelectContent>
-              {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+              {entities.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      {!selectedClient ? (
+      {!selectedId ? (
         <Card className="border-border/50 bg-black/20 backdrop-blur-xl">
           <div className="p-16 text-center text-muted-foreground flex flex-col items-center">
-            <Receipt className="w-12 h-12 mb-4 opacity-20" />
-            <p className="text-lg">Select a hospital from the dropdown above to view their accounts receivable ledger and record payments.</p>
+            <Receipt className={`w-12 h-12 mb-4 opacity-20 ${isHospital ? 'text-blue-400' : 'text-amber-400'}`} />
+            <p className="text-lg max-w-md">
+              Select a {isHospital ? 'hospital' : 'radiologist'} from the dropdown above to view their {isHospital ? 'accounts receivable' : 'accounts payable'} ledger and record payments.
+            </p>
           </div>
         </Card>
       ) : (
@@ -129,11 +166,13 @@ export default function PaymentsPage() {
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="bg-black/20 border-border/50">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Billed</CardTitle>
+                <CardTitle className="text-sm font-medium">Total {isHospital ? 'Billed' : 'Payable'}</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">৳{Number(clientData?.total_billed || 0).toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground mt-1">Lifetime invoices generated</p>
+                <div className="text-2xl font-bold">৳{Number(entityData?.total_billed || 0).toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isHospital ? 'Lifetime hospital invoices' : 'Lifetime radiologist fees'}
+                </p>
               </CardContent>
             </Card>
             <Card className="bg-black/20 border-border/50">
@@ -141,17 +180,25 @@ export default function PaymentsPage() {
                 <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-emerald-500">৳{Number(clientData?.total_paid || 0).toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground mt-1">Lifetime payments received</p>
+                <div className={`text-2xl font-bold ${isHospital ? 'text-emerald-500' : 'text-blue-500'}`}>
+                  ৳{Number(entityData?.total_paid || 0).toLocaleString()}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isHospital ? 'Lifetime payments received' : 'Lifetime payments made'}
+                </p>
               </CardContent>
             </Card>
-            <Card className="bg-blue-950/20 border-blue-900/50">
+            <Card className={isHospital ? "bg-blue-950/20 border-blue-900/50" : "bg-amber-950/20 border-amber-900/50"}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Current Outstanding Due</CardTitle>
+                <CardTitle className="text-sm font-medium">Current {isHospital ? 'Outstanding Due' : 'Unpaid Balance'}</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-blue-400">৳{Number(clientData?.current_due || 0).toLocaleString()}</div>
-                <p className="text-xs text-blue-400/60 mt-1">Current AR Balance</p>
+                <div className={`text-3xl font-bold ${isHospital ? 'text-blue-400' : 'text-amber-400'}`}>
+                  ৳{Number(entityData?.current_due || 0).toLocaleString()}
+                </div>
+                <p className={`text-xs mt-1 ${isHospital ? 'text-blue-400/60' : 'text-amber-400/60'}`}>
+                  {isHospital ? 'Current AR Balance' : 'Current AP Balance'}
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -160,16 +207,18 @@ export default function PaymentsPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle>Payment History</CardTitle>
-                <CardDescription>Recent payments recorded for {clientData?.name}</CardDescription>
+                <CardDescription>Recent payments recorded for {entityData?.name}</CardDescription>
               </div>
               <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                <DialogTrigger className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 bg-emerald-600 text-primary-foreground shadow hover:bg-emerald-600/90 h-9 px-4 py-2">
-                  <Plus className="mr-2 h-4 w-4" /> Record New Payment
+                <DialogTrigger className={`inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 text-primary-foreground shadow h-9 px-4 py-2 ${isHospital ? 'bg-emerald-600 hover:bg-emerald-600/90' : 'bg-blue-600 hover:bg-blue-600/90'}`}>
+                  <Plus className="mr-2 h-4 w-4" /> Record {isHospital ? 'New Payment' : 'Fee Payment'}
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Record Payment</DialogTitle>
-                    <DialogDescription>Add a new payment to {clientData?.name}'s ledger. This will instantly deduce their ongoing AR due.</DialogDescription>
+                    <DialogDescription>
+                      Add a new payment to {entityData?.name}'s ledger. This will instantly deduce their ongoing {isHospital ? 'AR due' : 'AP balance'}.
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="grid gap-4 py-4">
                     <div className="grid grid-cols-2 gap-4">
@@ -193,7 +242,7 @@ export default function PaymentsPage() {
                   </div>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
-                    <Button onClick={savePayment} disabled={submitting || !formData.amount || Number(formData.amount) <= 0 || !formData.payment_date} className="bg-emerald-600 hover:bg-emerald-700">
+                    <Button onClick={savePayment} disabled={submitting || !formData.amount || Number(formData.amount) <= 0 || !formData.payment_date} className={isHospital ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700"}>
                       {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Confirm Payment
                     </Button>
                   </DialogFooter>
@@ -219,16 +268,16 @@ export default function PaymentsPage() {
                     <TableRow>
                       <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                         <History className="h-8 w-8 mx-auto mb-3 opacity-20" />
-                        No payments recorded for this client yet.
+                        No payments recorded for this {isHospital ? 'client' : 'radiologist'} yet.
                       </TableCell>
                     </TableRow>
                   ) : (
                     payments.map((p) => (
                       <TableRow key={p.id} className="border-border/50">
-                        <TableCell className="font-medium text-emerald-400">{format(new Date(p.payment_date), 'PP')}</TableCell>
+                        <TableCell className={`font-medium ${isHospital ? 'text-emerald-400' : 'text-blue-400'}`}>{format(new Date(p.payment_date), 'PP')}</TableCell>
                         <TableCell>{p.reference || <span className="opacity-50 italic">None</span>}</TableCell>
                         <TableCell>{p.note || <span className="opacity-50 italic">None</span>}</TableCell>
-                        <TableCell className="text-right font-bold text-emerald-500">৳{Number(p.amount).toLocaleString()}</TableCell>
+                        <TableCell className={`text-right font-bold ${isHospital ? 'text-emerald-500' : 'text-blue-500'}`}>৳{Number(p.amount).toLocaleString()}</TableCell>
                       </TableRow>
                     ))
                   )}

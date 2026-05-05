@@ -21,6 +21,7 @@ export default function PricingPage() {
   
   const [clients, setClients] = useState<any[]>([]);
   const [radiologists, setRadiologists] = useState<any[]>([]);
+  const [billingTypes, setBillingTypes] = useState<any[]>([]);
   
   const [selectedClient, setSelectedClient] = useState<string>('');
   const [selectedRad, setSelectedRad] = useState<string>('');
@@ -53,14 +54,16 @@ export default function PricingPage() {
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      const [gRes, cRes, rRes] = await Promise.all([
+      const [gRes, cRes, rRes, bRes] = await Promise.all([
         fetch('/api/config/global-prices'),
         fetch('/api/config/clients'),
-        fetch('/api/config/radiologists')
+        fetch('/api/config/radiologists'),
+        fetch('/api/config/billing-types')
       ]);
       if (gRes.ok) setGlobalPrices((await gRes.json()).data);
       if (cRes.ok) setClients((await cRes.json()).data);
       if (rRes.ok) setRadiologists((await rRes.json()).data);
+      if (bRes.ok) setBillingTypes(await bRes.json());
     } catch (e) {
       console.error(e);
     } finally {
@@ -174,16 +177,17 @@ export default function PricingPage() {
   };
 
   const renderTable = (category: 'global' | 'client' | 'rad', data: any[]) => (
-    <Table>
-      <TableHeader>
-        <TableRow className="border-border/50">
-          <TableHead>Study Type</TableHead>
-          <TableHead>Base Rate</TableHead>
-          <TableHead>Effective From</TableHead>
-          <TableHead>Effective To</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
-        </TableRow>
-      </TableHeader>
+    <div className="max-h-[500px] overflow-y-auto">
+      <Table>
+        <TableHeader className="bg-muted/80 backdrop-blur-sm sticky top-0 z-10 shadow-sm">
+          <TableRow className="border-border/50 hover:bg-transparent">
+            <TableHead className="font-bold text-foreground">Study Type</TableHead>
+            <TableHead className="font-bold text-foreground">Base Rate</TableHead>
+            <TableHead className="font-bold text-foreground">Effective From</TableHead>
+            <TableHead className="font-bold text-foreground">Effective To</TableHead>
+            <TableHead className="text-right font-bold text-foreground">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
       <TableBody>
         {data.length === 0 ? (
           <TableRow>
@@ -209,8 +213,9 @@ export default function PricingPage() {
             </TableRow>
           ))
         )}
-      </TableBody>
-    </Table>
+        </TableBody>
+      </Table>
+    </div>
   );
 
   const renderModal = (category: 'global' | 'client' | 'rad', open: boolean, setOpen: (v: boolean) => void) => (
@@ -222,8 +227,17 @@ export default function PricingPage() {
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="space-y-2">
-            <Label>Study Type (e.g. X-RAY, CT-BRAIN)</Label>
-            <Input value={formData.type} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, type: e.target.value })} placeholder="Mapped study type..." />
+            <Label>Study Type</Label>
+            <Select value={formData.type} onValueChange={(val: string | null) => setFormData({ ...formData, type: val || '' })}>
+              <SelectTrigger className="bg-background border-border/50">
+                <SelectValue placeholder="Select a billing type..." />
+              </SelectTrigger>
+              <SelectContent>
+                {billingTypes.map(t => (
+                  <SelectItem key={t.id} value={t.name}>{t.display_name} ({t.name})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label>Price Amount (BDT)</Label>

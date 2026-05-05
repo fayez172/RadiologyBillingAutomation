@@ -5,11 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Loader2, FileSpreadsheet, RefreshCw, User, Building2 } from "lucide-react";
+import { Search, Loader2, FileSpreadsheet, RefreshCw, User, Building2, FileText } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { formatBDT } from '@/lib/date-utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import Link from 'next/link';
 
 export default function StudiesPage() {
   const [studies, setStudies] = useState<any[]>([]);
@@ -31,7 +32,7 @@ export default function StudiesPage() {
   useEffect(() => {
     fetch('/api/reference/modalities')
       .then(res => res.json())
-      .then(data => setAvailableModalities(data || []))
+      .then(data => setAvailableModalities(data.data || []))
       .catch(console.error);
   }, []);
 
@@ -87,11 +88,16 @@ export default function StudiesPage() {
         </div>
         
         <div className="flex gap-2">
+          <Link href="/studies/reports">
+            <Button variant="outline" className="border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10 text-blue-400">
+              <FileText className="h-4 w-4 mr-2" /> Billing Reports
+            </Button>
+          </Link>
           <Button onClick={fetchStudies} variant="outline" className="border-border/50">
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
           <Button onClick={exportToExcel} disabled={studies.length === 0} className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg">
-            <FileSpreadsheet className="mr-2 h-4 w-4" /> Export Excel (BDT)
+            <FileSpreadsheet className="mr-2 h-4 w-4" /> Quick Export (BDT)
           </Button>
         </div>
       </div>
@@ -155,15 +161,16 @@ export default function StudiesPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
+          <div className="relative h-[calc(100vh-350px)] overflow-auto border rounded-md custom-scrollbar bg-black/40 shadow-inner">
+            <Table>
+            <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur shadow-sm">
               <TableRow className="border-border/50 hover:bg-transparent">
-                <TableHead className="w-[200px]">Patient & MRN</TableHead>
-                <TableHead>Hospital</TableHead>
-                <TableHead className="w-[80px]">Modality</TableHead>
-                <TableHead className="max-w-[200px]">Procedure Name</TableHead>
-                <TableHead>Mapping</TableHead>
-                <TableHead className="text-right">Report Date (BDT)</TableHead>
+                <TableHead className="w-[200px] font-bold py-4 text-foreground">Patient & MRN</TableHead>
+                <TableHead className="font-bold text-foreground">Hospital</TableHead>
+                <TableHead className="w-[80px] font-bold text-foreground">Modality</TableHead>
+                <TableHead className="max-w-[200px] font-bold text-foreground">Procedure Name</TableHead>
+                <TableHead className="font-bold text-foreground">Mapping</TableHead>
+                <TableHead className="text-right font-bold text-foreground">Report Date (BDT)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -228,7 +235,8 @@ export default function StudiesPage() {
                 ))
               )}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

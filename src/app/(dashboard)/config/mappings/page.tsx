@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Trash2, Edit2, Check, X, CheckSquare, Square, Upload, Loader2 } from 'lucide-react';
+import { Search, Plus, Trash2, Edit2, Check, X, CheckSquare, Square, Upload, Loader2, Download } from 'lucide-react';
 
 interface Mapping {
   id: string;
@@ -32,6 +32,11 @@ export default function MappingsPage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
 
+  // Unmapped proposals state
+  const [unmappedItems, setUnmappedItems] = useState<any[]>([]);
+  const [unmappedLoading, setUnmappedLoading] = useState(true);
+  const [unmappedSaving, setUnmappedSaving] = useState<string | null>(null);
+
   const fetchBillingTypes = async () => {
     try {
       const res = await fetch('/api/config/billing-types');
@@ -39,6 +44,47 @@ export default function MappingsPage() {
       if (res.ok) setBillingTypes(data);
     } catch (err) {
       console.error('Failed to fetch billing types', err);
+    }
+  };
+
+  const fetchUnmappedData = async () => {
+    setUnmappedLoading(true);
+    try {
+      const res = await fetch('/api/config/unmapped-procedures');
+      if (res.ok) {
+        setUnmappedItems((await res.json()).data);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setUnmappedLoading(false);
+    }
+  };
+
+  const handleAssignUnmapped = async (modality: string, procedure_raw: string, typeName: string) => {
+    setUnmappedSaving(`${modality}-${procedure_raw}`);
+    try {
+      const res = await fetch('/api/config/unmapped-procedures', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          procedure_raw,
+          type: typeName
+        })
+      });
+
+      if (res.ok) {
+        // Remove from unmapped list
+        setUnmappedItems(prev => prev.filter(i => !(i.modality === modality && i.procedure_raw === procedure_raw)));
+        // Refresh mapping rules
+        fetchMappings();
+      } else {
+        alert("Failed to save mapping");
+      }
+    } catch (e) {
+      alert("Connection error");
+    } finally {
+      setUnmappedSaving(null);
     }
   };
 
@@ -66,6 +112,24 @@ export default function MappingsPage() {
     }
   };
 
+  const handleExportMappings = async () => {
+    try {
+      const res = await fetch('/api/config/mappings/export');
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mappings_backup_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const fetchMappings = async () => {
     try {
       const res = await fetch('/api/config/mappings' + (search ? `?search=${encodeURIComponent(search)}` : ''));
@@ -80,7 +144,8 @@ export default function MappingsPage() {
 
   useEffect(() => {
     fetchBillingTypes();
-    fetch('/api/reference/modalities').then(r => r.json()).then(data => setModalities(data || []));
+    fetchUnmappedData();
+    fetch('/api/reference/modalities').then(r => r.json()).then(data => setModalities(data.data || []));
   }, []);
 
   useEffect(() => {
@@ -175,12 +240,12 @@ export default function MappingsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Master Mappings</h1>
+          <h1 className="text-3xl font-bold tracking-tight">System Mappings</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Map normalized Procedure & Modality strings to internal billing Types. Evaluated top-to-bottom.
+            Configure rules and bulk-map unmapped procedures across all instances.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -188,16 +253,109 @@ export default function MappingsPage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-500/50 bg-emerald-950/20 text-emerald-400 text-sm font-medium hover:bg-emerald-900/40 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-500/50 bg-emerald-950/20 text-emerald-400 text-sm font-medium hover:bg-emerald-900/40 transition-colors disabled:opacity-50 shadow-lg shadow-emerald-900/10"
           >
             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            Import Excel
+            Import Rules
           </button>
-          <button onClick={() => setIsAdding(true)} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" /> Add Mapping
+          <button
+            onClick={handleExportMappings}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-500/50 bg-blue-950/20 text-blue-400 text-sm font-medium hover:bg-blue-900/40 transition-colors shadow-lg shadow-blue-900/10"
+          >
+            <Download className="w-4 h-4" />
+            Download Mappings
+          </button>
+          <button onClick={() => setIsAdding(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 transition-colors shadow-lg shadow-blue-900/20">
+            <Plus className="w-4 h-4" /> Add Pattern
           </button>
         </div>
       </div>
+
+      {/* NEW: UNMAPPED PROPOSALS SECTION */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              Unmapped unique procedures ({unmappedItems.length})
+            </h2>
+          </div>
+          <button 
+            onClick={fetchUnmappedData} 
+            className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+          >
+            {unmappedLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Refresh Proposals
+          </button>
+        </div>
+
+        <div className="glass-panel overflow-hidden border-amber-500/20 bg-amber-500/5">
+          <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-amber-500/10 border-b border-amber-500/20 text-[10px] uppercase font-bold text-amber-500/70 sticky top-0 z-10 backdrop-blur-md">
+                <tr>
+                  <th className="px-4 py-2">Modality</th>
+                  <th className="px-4 py-2">Original Procedure Name (Across all instances)</th>
+                  <th className="px-4 py-2 text-center">Studies</th>
+                  <th className="px-4 py-2 w-[250px]">Map To Billing Type</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-500/10">
+                {unmappedLoading && unmappedItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-12 text-center">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-amber-500/40" />
+                      <p className="text-xs text-amber-500/40 mt-2 font-medium uppercase tracking-wider">Analyzing study logs...</p>
+                    </td>
+                  </tr>
+                ) : unmappedItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-12 text-center">
+                      <p className="text-emerald-500 font-medium">✨ All studies are currently mapped!</p>
+                    </td>
+                  </tr>
+                ) : (
+                  unmappedItems.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-amber-500/5 transition-colors group">
+                      <td className="px-4 py-3">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20 uppercase tracking-tighter">
+                          {item.modality}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-medium italic text-amber-200/70 truncate max-w-sm group-hover:text-amber-200 transition-colors">
+                        {item.procedure_raw}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-mono text-xs font-bold text-amber-500/60">{item.count}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <select 
+                          disabled={unmappedSaving === `${item.modality}-${item.procedure_raw}`}
+                          className="w-full bg-background/50 border border-amber-500/20 px-2 py-1.5 rounded text-xs outline-none focus:ring-1 focus:ring-amber-500/50"
+                          value=""
+                          onChange={(e) => handleAssignUnmapped(item.modality, item.procedure_raw, e.target.value)}
+                        >
+                          <option value="">Choose Billing Type...</option>
+                          {billingTypes
+                            .filter(t => t.modalities && t.modalities.includes(item.modality))
+                            .map(t => (
+                              <option key={t.id} value={t.name}>{t.display_name}</option>
+                            ))
+                          }
+                        </select>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+            Active Pattern Rules
+        </h2>
 
       {importResult && (
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-950/20 p-4 text-sm">
@@ -216,32 +374,32 @@ export default function MappingsPage() {
         </div>
       )}
 
-      <div className="glass-panel overflow-hidden">
-        <div className="p-4 border-b border-white/10 flex gap-4">
+      <div className="glass-panel overflow-hidden border-white/5 bg-black/40 shadow-2xl">
+        <div className="p-4 border-b border-white/10 flex gap-4 bg-white/5">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search mappings..."
+              placeholder="Filter active rules..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-md text-sm outline-none focus:ring-1 focus:ring-primary"
+              className="w-full pl-9 pr-4 py-2 bg-background/50 border border-white/10 rounded-md text-sm outline-none focus:ring-1 focus:ring-primary/50 transition-all font-medium"
             />
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
           <table className="w-full text-sm text-left">
-            <thead className="bg-white/5 border-b border-white/10 text-xs uppercase text-muted-foreground">
+            <thead className="bg-background/95 border-b border-white/10 text-[10px] uppercase font-bold text-muted-foreground sticky top-0 z-10 backdrop-blur-md shadow-sm">
               <tr>
-                <th className="px-4 py-3 font-medium">Active</th>
-                <th className="px-4 py-3 font-medium">Modality</th>
-                <th className="px-4 py-3 font-medium">Procedure Pattern</th>
-                <th className="px-4 py-3 font-medium text-center">Regex</th>
-                <th className="px-4 py-3 font-medium">Type (Client)</th>
-                <th className="px-4 py-3 font-medium">Type (Rad)</th>
-                <th className="px-4 py-3 font-medium text-center">Priority</th>
-                <th className="px-4 py-3 font-medium text-right w-24">Actions</th>
+                <th className="px-4 py-3 font-bold">Active</th>
+                <th className="px-4 py-3 font-bold">Modality</th>
+                <th className="px-4 py-3 font-bold">Procedure Pattern</th>
+                <th className="px-4 py-3 font-bold text-center">Regex</th>
+                <th className="px-4 py-3 font-bold">Type (Client)</th>
+                <th className="px-4 py-3 font-bold">Type (Rad)</th>
+                <th className="px-4 py-3 font-bold text-center">Priority</th>
+                <th className="px-4 py-3 font-bold text-right w-24">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
@@ -377,6 +535,7 @@ export default function MappingsPage() {
               )}
             </tbody>
           </table>
+        </div>
         </div>
       </div>
     </div>

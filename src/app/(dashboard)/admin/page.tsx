@@ -353,13 +353,34 @@ function SystemStatus() {
   const handleManualSync = async () => {
     setSyncing(true);
     try {
-      const res = await fetch('/api/cron/sync');
+      const res = await fetch('/api/admin/sync', { method: 'POST', body: JSON.stringify({}) });
       const data = await res.json();
       if (res.ok) {
-        toast.success(`Sync completed: ${data.data?.processed} studies processed.`);
+        toast.success(`Sync completed successfully.`);
         fetchStats();
       } else {
-        throw new Error(data.error || 'Sync failed');
+        throw new Error(data.error?.message || 'Sync failed');
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleResetData = async () => {
+    if (!confirm("CRITICAL: This will delete ALL studies, invoice items, and reset sync markers. This cannot be undone. Are you sure?")) return;
+    if (!confirm("Final Confirmation: Purge all data for a fresh start?")) return;
+
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/admin/sync', { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success("System data has been reset. Starting fresh sync...");
+        handleManualSync();
+      } else {
+        throw new Error(data.error?.message || 'Reset failed');
       }
     } catch (e: any) {
       toast.error(e.message);
@@ -405,16 +426,28 @@ function SystemStatus() {
             <CardTitle>Instance Sync Health</CardTitle>
             <CardDescription>Real-time status of remote database connections.</CardDescription>
           </div>
-          <Button 
-            size="sm" 
-            variant="outline" 
-            onClick={handleManualSync} 
-            disabled={syncing}
-            className="border-primary/20 hover:bg-primary/10"
-          >
-            {syncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PlayCircle className="h-4 w-4 mr-2" />}
-            Trigger Manual Sync
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              size="sm" 
+              variant="outline" 
+              onClick={handleResetData} 
+              disabled={syncing}
+              className="border-red-500/20 hover:bg-red-500/10 text-red-400"
+            >
+              {syncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Reset & Restart Sync
+            </Button>
+            <Button 
+              size="sm" 
+              variant="outline" 
+              onClick={handleManualSync} 
+              disabled={syncing}
+              className="border-primary/20 hover:bg-primary/10"
+            >
+              {syncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PlayCircle className="h-4 w-4 mr-2" />}
+              Trigger Manual Sync
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <Table>
