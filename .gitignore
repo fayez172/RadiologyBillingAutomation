@@ -35,3 +35,7 @@ next-env.d.ts
 # temp
 temp-app/
 explore_db.py
+
+# agent
+.agent/
+scratch/
