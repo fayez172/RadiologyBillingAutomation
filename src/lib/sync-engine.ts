@@ -187,12 +187,25 @@ export async function checkNewStudiesCount(instanceId: string): Promise<number> 
   try {
     const pool = await getDbPool(instance);
     
+    // Parse owner IDs safely
+    let ownerIds = [3];
+    try {
+      const parsed = JSON.parse(instance.owner_ids);
+      if (Array.isArray(parsed)) {
+        ownerIds = parsed.map(id => Number(id)).filter(id => !isNaN(id));
+      }
+    } catch (e) {}
+    if (ownerIds.length === 0) ownerIds = [3];
+    const ownerIdsStr = ownerIds.join(',');
+
     const result = await pool.request()
       .input('lastSync', instance.last_synced_at)
       .query(`
         SELECT COUNT(*) as new_count
-        FROM [${instance.reporting_db}].dbo.FinishedReport
-        WHERE ReportCompletedTime > @lastSync
+        FROM [${instance.reporting_db}].dbo.FinishedReport fr
+        INNER JOIN [${instance.radiology_db}].dbo.StudySource ss ON ss.ID = fr.StudySourceID
+        WHERE fr.ReportCompletedTime > @lastSync
+          AND ss.OwnerID IN (${ownerIdsStr})
       `);
       
     return result.recordset[0]?.new_count || 0;
@@ -286,8 +299,8 @@ export async function syncStudies(instanceId: string, customDateFrom?: Date, cus
           const compositeKey = `${instanceId}:${row.WorkflowID}`;
           const currentStudy = await tx.study.findUnique({ where: { composite_key: compositeKey } });
           
-          // Addendum Logic: Add3 > Add2 > Add1 > ReportedBy
-          const finalRadRemoteId = Number(row.Add3Read1RadiologistID 
+          // Addendum Logic: Add3 > Add2 > Add1 > ReportedBy (Per business rule)
+          const finalRadRemoteId = Number(row.Add3Read1RadiologistID
             ?? row.Add2Read1RadiologistID 
             ?? row.Add1Read1RadiologistID 
             ?? row.ReportedByUserID);

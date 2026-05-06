@@ -100,6 +100,7 @@ class AgentConfig:
     api_endpoint: str
     api_key: str
     mssql: MSSQLConfig
+    owner_ids: list[int] = field(default_factory=lambda: [3])
     polling: PollingConfig = field(default_factory=PollingConfig)
     backfill: BackfillConfig = field(default_factory=BackfillConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
@@ -123,6 +124,7 @@ def load_config(path: Path) -> AgentConfig:
         api_endpoint=raw["api_endpoint"].rstrip("/"),
         api_key=raw["api_key"],
         mssql=MSSQLConfig(**mssql_raw),
+        owner_ids=raw.get("owner_ids", [3]),
         polling=PollingConfig(**raw.get("polling", {})),
         backfill=_parse_backfill(raw.get("backfill", {})),
         network=NetworkConfig(**raw.get("network", {})),

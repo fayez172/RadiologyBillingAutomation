@@ -4,7 +4,7 @@ import { getClientPrice, getRadiologistPrice } from './pricing';
 export interface InvoiceLineDraft {
   type: string;
   qty: number;
-  unit_price: number;
+  unit_price: number | null;
   total: number;
   study_ids: string[];
 }
@@ -121,7 +121,7 @@ export async function buildInvoiceDraft(clientId: string, periodStart: Date, per
 
     // Determine the price using the billing utility based on the period end date
     const unitPrice = await getClientPrice(clientId, lookupKey, periodEnd);
-    const lineTotal = data.qty * unitPrice;
+    const lineTotal = data.qty * (unitPrice || 0);
 
     lines.push({
       type: displayName,
@@ -232,7 +232,7 @@ export async function buildRadiologistBillingDraft(radiologistId: string, period
     const lookupKey = bType ? bType.name : displayName;
 
     const unitPrice = await getRadiologistPrice(radiologistId, lookupKey, periodEnd);
-    const lineTotal = data.qty * unitPrice;
+    const lineTotal = data.qty * (unitPrice || 0);
 
     lines.push({
       type: displayName,

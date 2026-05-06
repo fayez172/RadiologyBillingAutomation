@@ -4,7 +4,7 @@ import { prisma } from './prisma';
  * Get the effective price for a Client based on study type and report date.
  * Fallback order: ClientPrice -> BillingType (Default) -> GlobalPrice -> 0
  */
-export async function getClientPrice(clientId: string, studyType: string, reportDate: Date): Promise<number> {
+export async function getClientPrice(clientId: string, studyType: string, reportDate: Date): Promise<number | null> {
   // 1. Check Client specific price
   const clientPrice = await prisma.clientPrice.findFirst({
     where: {
@@ -25,7 +25,7 @@ export async function getClientPrice(clientId: string, studyType: string, report
   const billingType = await prisma.billingType.findUnique({
     where: { name: studyType }
   });
-  if (billingType && billingType.is_active) {
+  if (billingType && billingType.is_active && billingType.default_hospital_price !== null) {
     return Number(billingType.default_hospital_price);
   }
 
@@ -45,14 +45,14 @@ export async function getClientPrice(clientId: string, studyType: string, report
   if (globalPrice) return Number(globalPrice.price);
 
   // 4. Not found
-  return 0;
+  return null;
 }
 
 /**
  * Get the effective fee for a Radiologist based on study type and report date.
- * Fallback order: RadiologistPrice -> BillingType (Default) -> 0
+ * Fallback order: RadiologistPrice -> BillingType (Default) -> null
  */
-export async function getRadiologistPrice(radiologistId: string, typeDr: string, reportDate: Date): Promise<number> {
+export async function getRadiologistPrice(radiologistId: string, typeDr: string, reportDate: Date): Promise<number | null> {
   // 1. Check Radiologist specific price
   const radPrice = await prisma.radiologistPrice.findFirst({
     where: {
@@ -73,9 +73,9 @@ export async function getRadiologistPrice(radiologistId: string, typeDr: string,
   const billingType = await prisma.billingType.findUnique({
     where: { name: typeDr }
   });
-  if (billingType && billingType.is_active) {
+  if (billingType && billingType.is_active && billingType.default_radiologist_price !== null) {
     return Number(billingType.default_radiologist_price);
   }
 
-  return 0;
+  return null;
 }

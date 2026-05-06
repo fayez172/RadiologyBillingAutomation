@@ -72,6 +72,7 @@ def fetch_finished_report_changes(
     from_lsn: bytes,
     to_lsn: bytes,
     radiology_db: str,
+    owner_ids: list[int],
 ) -> list[dict]:
     """
     Fetch net changes to FinishedReport between two LSNs.
@@ -96,6 +97,13 @@ def fetch_finished_report_changes(
             )                       AS radiologist,
             m.DisplayName           AS modality,
             fr.TotalImageCount      AS image_count,
+            fr.ReportedByUserID,
+            fr.Add1Read1RadiologistID,
+            fr.Add2Read1RadiologistID,
+            fr.Add3Read1RadiologistID,
+            fr.ForModalityID,
+            fr.ForProcedureID,
+            fr.StudySourceID,
             LTRIM(RTRIM(CONCAT(
                 fr.PatientPrefix, ' ', fr.PatientFirstName, ' ',
                 fr.PatientMiddleName, ' ', fr.PatientLastName, ' ',
@@ -106,6 +114,7 @@ def fetch_finished_report_changes(
         LEFT JOIN [{radiology_db}].dbo.Radiologist   r  ON r.ID  = fr.ReportedByUserID
         LEFT JOIN [{radiology_db}].dbo.Modality      m  ON m.ID  = fr.ForModalityID
         LEFT JOIN [{radiology_db}].dbo.StudySource   ss ON ss.ID = fr.StudySourceID
+        WHERE ss.OwnerID IN ({",".join(map(str, owner_ids))})
         ORDER BY fr.__$start_lsn
     """
     rows = conn.execute(sql, from_lsn, to_lsn).fetchall()
@@ -124,6 +133,13 @@ def _row_to_study(row) -> dict:
         "modality": row.modality,
         "image_count": row.image_count,
         "patient_name": (row.patient_name or "").strip(),
+        "reported_by_remote_id": row.ReportedByUserID,
+        "add1_rad_remote_id": row.Add1Read1RadiologistID,
+        "add2_rad_remote_id": row.Add2Read1RadiologistID,
+        "add3_rad_remote_id": row.Add3Read1RadiologistID,
+        "modality_remote_id": row.ForModalityID,
+        "procedure_remote_id": row.ForProcedureID,
+        "study_source_remote_id": row.StudySourceID,
     }
 
 
@@ -135,6 +151,7 @@ def fetch_reference_changes(
     capture_instance: str,
     from_lsn: bytes,
     to_lsn: bytes,
+    owner_ids: list[int],
 ) -> list[dict]:
     """Generic CDC fetch for reference tables (Radiologist, Modality, etc.)."""
     sql = f"""
@@ -151,10 +168,21 @@ def fetch_reference_changes(
     data_col_names = col_names[3:]
     
     results = []
+    owner_id_idx = None
+    if "OwnerID" in data_col_names:
+        owner_id_idx = data_col_names.index("OwnerID")
+    elif "owner_id" in data_col_names:
+        owner_id_idx = data_col_names.index("owner_id")
+
     for r in rows:
+        data = dict(zip(data_col_names, r[3:]))
+        if owner_id_idx is not None:
+            oid = r[3 + owner_id_idx]
+            if oid not in owner_ids:
+                continue
         results.append({
             "op": OPERATION_MAP.get(r[1], "unknown"),
-            **dict(zip(data_col_names, r[3:])),
+            **data,
         })
     return results
 
@@ -168,6 +196,7 @@ def fetch_backfill_batch(
     offset: int,
     batch_size: int,
     radiology_db: str,
+    owner_ids: list[int],
 ) -> list[dict]:
     """
     Direct paginated query on FinishedReport for historical backfill.
@@ -191,6 +220,13 @@ def fetch_backfill_batch(
             )                       AS radiologist,
             m.DisplayName           AS modality,
             fr.TotalImageCount      AS image_count,
+            fr.ReportedByUserID,
+            fr.Add1Read1RadiologistID,
+            fr.Add2Read1RadiologistID,
+            fr.Add3Read1RadiologistID,
+            fr.ForModalityID,
+            fr.ForProcedureID,
+            fr.StudySourceID,
             LTRIM(RTRIM(CONCAT(
                 fr.PatientPrefix, ' ', fr.PatientFirstName, ' ',
                 fr.PatientMiddleName, ' ', fr.PatientLastName, ' ',
@@ -203,6 +239,7 @@ def fetch_backfill_batch(
         LEFT JOIN [{radiology_db}].dbo.StudySource   ss ON ss.ID = fr.StudySourceID
         WHERE fr.ReportCompletedTime >= CAST(? AS DATE)
           AND fr.ReportCompletedTime <  DATEADD(DAY, 1, CAST(? AS DATE))
+          AND ss.OwnerID IN ({",".join(map(str, owner_ids))})
         ORDER BY fr.ReportCompletedTime, fr.WorkflowID
         OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
     """
@@ -220,6 +257,13 @@ def fetch_backfill_batch(
             "modality": r.modality,
             "image_count": r.image_count,
             "patient_name": (r.patient_name or "").strip(),
+            "reported_by_remote_id": r.ReportedByUserID,
+            "add1_rad_remote_id": r.Add1Read1RadiologistID,
+            "add2_rad_remote_id": r.Add2Read1RadiologistID,
+            "add3_rad_remote_id": r.Add3Read1RadiologistID,
+            "modality_remote_id": r.ForModalityID,
+            "procedure_remote_id": r.ForProcedureID,
+            "study_source_remote_id": r.StudySourceID,
         }
         for r in rows
     ]
@@ -227,22 +271,22 @@ def fetch_backfill_batch(
 
 # ── Reference Data Fetch (for initial load / ref refresh) ─────────────────────
 
-def fetch_radiologists(conn: pyodbc.Connection) -> list[dict]:
+def fetch_radiologists(conn: pyodbc.Connection, owner_ids: list[int]) -> list[dict]:
     rows = conn.execute(
-        "SELECT ID, DisplayName, FirstName, MiddleName, LastName, Active FROM dbo.Radiologist"
+        f"SELECT ID, DisplayName, FirstName, MiddleName, LastName, Active FROM dbo.Radiologist WHERE OwnerID IN ({','.join(map(str, owner_ids))})"
     ).fetchall()
     return [dict(zip([c[0] for c in conn.cursor().description or []], r)) for r in rows]
 
 
-def fetch_modalities(conn: pyodbc.Connection) -> list[dict]:
+def fetch_modalities(conn: pyodbc.Connection, owner_ids: list[int]) -> list[dict]:
     rows = conn.execute(
-        "SELECT ID, DisplayName, Code, Active FROM dbo.Modality"
+        f"SELECT ID, DisplayName, Code, Active FROM dbo.Modality WHERE OwnerID IN ({','.join(map(str, owner_ids))})"
     ).fetchall()
     return [{"id": r[0], "display_name": r[1], "code": r[2], "active": r[3]} for r in rows]
 
 
-def fetch_hospitals(conn: pyodbc.Connection) -> list[dict]:
+def fetch_hospitals(conn: pyodbc.Connection, owner_ids: list[int]) -> list[dict]:
     rows = conn.execute(
-        "SELECT ID, Name, Active FROM dbo.StudySource"
+        f"SELECT ID, Name, Active FROM dbo.StudySource WHERE OwnerID IN ({','.join(map(str, owner_ids))})"
     ).fetchall()
     return [{"id": r[0], "name": r[1], "active": r[2]} for r in rows]

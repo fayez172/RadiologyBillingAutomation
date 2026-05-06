@@ -169,6 +169,7 @@ export default function StudiesPage() {
                 <TableHead className="font-bold text-foreground">Hospital</TableHead>
                 <TableHead className="w-[80px] font-bold text-foreground">Modality</TableHead>
                 <TableHead className="max-w-[200px] font-bold text-foreground">Procedure Name</TableHead>
+                <TableHead className="w-[180px] font-bold text-foreground">Radiologist</TableHead>
                 <TableHead className="font-bold text-foreground">Mapping</TableHead>
                 <TableHead className="text-right font-bold text-foreground">Report Date (BDT)</TableHead>
               </TableRow>
@@ -176,63 +177,86 @@ export default function StudiesPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                     <Loader2 className="h-8 w-8 animate-spin mx-auto opacity-50" />
                     <p className="mt-2 text-xs">Querying database...</p>
                   </TableCell>
                 </TableRow>
               ) : studies.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-16 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-16 text-muted-foreground">
                     <Search className="h-10 w-10 mx-auto mb-4 opacity-20" />
                     <p>No studies found for this criteria.</p>
                   </TableCell>
                 </TableRow>
               ) : (
-                studies.map((s) => (
-                  <TableRow key={s.id} className="border-border/50 group hover:bg-white/5 transition-colors">
-                    <TableCell>
-                      <div className="font-semibold text-sm group-hover:text-primary transition-colors">{s.patient_name || 'Unknown'}</div>
-                      <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5">
-                        <User className="h-3 w-3" /> {s.mrn || 'NO MRN'}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm font-medium">
-                       <div className="flex items-center gap-1.5">
-                         <Building2 className="h-3 w-3 text-muted-foreground" />
-                         {s.hospital_name}
-                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                        {s.modality}
-                      </span>
-                    </TableCell>
-                    <TableCell className="max-w-[200px] truncate group-hover:whitespace-normal group-hover:overflow-visible transition-all">
-                      <div className="text-[11px] italic text-muted-foreground leading-snug" title={s.procedure_raw}>
-                        {s.procedure_raw}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {s.type ? (
-                        <div className="flex flex-col gap-0.5">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 w-fit">
-                            {s.type}
-                          </span>
-                          <span className="text-[9px] text-muted-foreground ml-1 font-medium">Auto-Mapped</span>
+                studies.map((s) => {
+                  // Determine addendum status
+                  const isAddendum = s.final_rad_remote_id && s.final_rad_remote_id !== s.reported_by_remote_id;
+                  let addLabel = "";
+                  if (isAddendum) {
+                    if (s.final_rad_remote_id === s.add3_rad_remote_id) addLabel = "Add 3";
+                    else if (s.final_rad_remote_id === s.add2_rad_remote_id) addLabel = "Add 2";
+                    else if (s.final_rad_remote_id === s.add1_rad_remote_id) addLabel = "Add 1";
+                  }
+
+                  return (
+                    <TableRow key={s.id} className="border-border/50 group hover:bg-white/5 transition-colors">
+                      <TableCell>
+                        <div className="font-semibold text-sm group-hover:text-primary transition-colors">{s.patient_name || 'Unknown'}</div>
+                        <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5">
+                          <User className="h-3 w-3" /> {s.mrn || 'NO MRN'}
                         </div>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/10 text-orange-400 border border-orange-500/20">
-                          UNMAPPED
+                      </TableCell>
+                      <TableCell className="text-sm font-medium">
+                         <div className="flex items-center gap-1.5">
+                           <Building2 className="h-3 w-3 text-muted-foreground" />
+                           {s.hospital_name}
+                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                          {s.modality}
                         </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="text-[11px] font-mono font-medium">{formatBDT(s.report_dt, 'dd MMM yyyy')}</div>
-                      <div className="text-[10px] text-muted-foreground">{formatBDT(s.report_dt, 'HH:mm:ss')}</div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate group-hover:whitespace-normal group-hover:overflow-visible transition-all">
+                        <div className="text-[11px] italic text-muted-foreground leading-snug" title={s.procedure_raw}>
+                          {s.procedure_raw}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs font-medium text-foreground truncate w-[160px]" title={s.final_rad_name}>
+                            {s.final_rad_name || 'N/A'}
+                          </span>
+                          {isAddendum && (
+                            <span className="inline-flex items-center px-1.5 py-0.25 rounded text-[9px] font-black bg-purple-500/20 text-purple-400 border border-purple-500/30 w-fit">
+                              {addLabel}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {s.type ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 w-fit">
+                              {s.type}
+                            </span>
+                            <span className="text-[9px] text-muted-foreground ml-1 font-medium">Auto-Mapped</span>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/10 text-orange-400 border border-orange-500/20">
+                            UNMAPPED
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="text-[11px] font-mono font-medium">{formatBDT(s.report_dt, 'dd MMM yyyy')}</div>
+                        <div className="text-[10px] text-muted-foreground">{formatBDT(s.report_dt, 'HH:mm:ss')}</div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
             </Table>

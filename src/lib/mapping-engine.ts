@@ -35,19 +35,27 @@ export async function resolveClientAlias(rawName: string | null, instanceId: str
   if (!rawName) return null;
   const name = rawName.trim();
   
-  // 1. Check exact client match first
-  const exactClient = await prisma.client.findUnique({ where: { name } });
+  // 1. Check exact client match first (case-insensitive)
+  const exactClient = await prisma.client.findFirst({ 
+    where: { name: { equals: name, mode: 'insensitive' } } 
+  });
   if (exactClient) return exactClient.id;
   
-  // 2. Check instance-specific alias
-  const instanceAlias = await prisma.clientAlias.findUnique({
-    where: { alias_name_instance_id: { alias_name: name, instance_id: instanceId } }
+  // 2. Check instance-specific alias (case-insensitive)
+  const instanceAlias = await prisma.clientAlias.findFirst({
+    where: { 
+      alias_name: { equals: name, mode: 'insensitive' },
+      instance_id: instanceId 
+    }
   });
   if (instanceAlias) return instanceAlias.client_id;
   
-  // 3. Check global alias
+  // 3. Check global alias (case-insensitive)
   const globalAlias = await prisma.clientAlias.findFirst({
-    where: { alias_name: name, instance_id: null }
+    where: { 
+      alias_name: { equals: name, mode: 'insensitive' },
+      instance_id: null 
+    }
   });
   if (globalAlias) return globalAlias.client_id;
   
@@ -58,19 +66,27 @@ export async function resolveRadiologistAlias(rawName: string | null, instanceId
   if (!rawName) return null;
   const name = rawName.trim();
   
-  // 1. Check exact rad match first
-  const exactRad = await prisma.radiologist.findUnique({ where: { name } });
+  // 1. Check exact rad match first (case-insensitive)
+  const exactRad = await prisma.radiologist.findFirst({ 
+    where: { name: { equals: name, mode: 'insensitive' } } 
+  });
   if (exactRad) return exactRad.id;
   
-  // 2. Check instance-specific alias
-  const instanceAlias = await prisma.radiologistAlias.findUnique({
-    where: { alias_name_instance_id: { alias_name: name, instance_id: instanceId } }
+  // 2. Check instance-specific alias (case-insensitive)
+  const instanceAlias = await prisma.radiologistAlias.findFirst({
+    where: { 
+      alias_name: { equals: name, mode: 'insensitive' },
+      instance_id: instanceId 
+    }
   });
   if (instanceAlias) return instanceAlias.radiologist_id;
   
-  // 3. Check global alias
+  // 3. Check global alias (case-insensitive)
   const globalAlias = await prisma.radiologistAlias.findFirst({
-    where: { alias_name: name, instance_id: null }
+    where: { 
+      alias_name: { equals: name, mode: 'insensitive' },
+      instance_id: null 
+    }
   });
   if (globalAlias) return globalAlias.radiologist_id;
   

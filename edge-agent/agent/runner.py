@@ -61,6 +61,7 @@ def run_backfill(cfg: AgentConfig, state: StateDB, command_id: str | None = None
                     offset=offset,
                     batch_size=bf.batch_size,
                     radiology_db=cfg.mssql.radiology_db,
+                    owner_ids=cfg.owner_ids,
                 )
 
             if not batch:
@@ -124,7 +125,7 @@ def run_cdc_finished_reports(cfg: AgentConfig, state: StateDB) -> None:
                 return
 
             changes = cdc_reader.fetch_finished_report_changes(
-                conn, from_lsn, current_lsn, cfg.mssql.radiology_db
+                conn, from_lsn, current_lsn, cfg.mssql.radiology_db, cfg.owner_ids
             )
 
         if not changes:
@@ -171,7 +172,7 @@ def run_cdc_reference_tables(cfg: AgentConfig, state: StateDB) -> None:
                     continue
 
                 changes = cdc_reader.fetch_reference_changes(
-                    conn, table, capture, from_lsn, current_lsn
+                    conn, table, capture, from_lsn, current_lsn, cfg.owner_ids
                 )
                 if changes:
                     ref_data[table.lower()] = changes

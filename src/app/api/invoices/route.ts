@@ -36,15 +36,29 @@ export async function POST(req: Request) {
       return apiError('BAD_REQUEST', 'Missing required fields', 400);
     }
 
-    // Generate Invoice Number (e.g., INV-202603-XXXX)
-    const yearMonth = new Date().toISOString().slice(0, 7).replace('-', '');
-    const count = await prisma.invoice.count({
-      where: { invoice_number: { startsWith: `INV-${yearMonth}` } }
-    });
-    const invoiceNumber = `INV-${yearMonth}-${String(count + 1).padStart(4, '0')}`;
-
     // Execute in transaction to save invoice and update client total_billed
     const result = await prisma.$transaction(async (tx: any) => {
+      // Generate Invoice Number (e.g., INV-202603-XXXX)
+      // Use period_start for the month prefix as per skill recommendation
+      const billingDate = new Date(period_start);
+      const yearMonth = billingDate.toISOString().slice(0, 7).replace('-', '');
+      
+      const lastInvoice = await tx.invoice.findFirst({
+        where: { invoice_number: { startsWith: `INV-${yearMonth}` } },
+        orderBy: { invoice_number: 'desc' },
+        select: { invoice_number: true }
+      });
+
+      let nextSerial = 1;
+      if (lastInvoice) {
+        const parts = lastInvoice.invoice_number.split('-');
+        const lastSerial = parseInt(parts[parts.length - 1], 10);
+        if (!isNaN(lastSerial)) {
+          nextSerial = lastSerial + 1;
+        }
+      }
+      const invoiceNumber = `INV-${yearMonth}-${String(nextSerial).padStart(4, '0')}`;
+
       const invoice = await tx.invoice.create({
         data: {
           invoice_number: invoiceNumber,

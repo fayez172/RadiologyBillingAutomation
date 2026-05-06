@@ -4,6 +4,7 @@
 instance_id: "${AGENT_INSTANCE_ID}"
 api_key: "${AGENT_API_KEY}"
 api_endpoint: "${AGENT_API_ENDPOINT}"
+owner_ids: [3]
 
 mssql:
   host: "${MSSQL_HOST}"

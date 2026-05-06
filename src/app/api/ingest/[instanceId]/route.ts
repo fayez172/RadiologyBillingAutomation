@@ -30,6 +30,15 @@ const StudySchema = z.object({
   modality: z.string().optional().nullable(),
   image_count: z.number().optional().nullable(),
   patient_name: z.string().optional().nullable(),
+
+  // Remote IDs for precedence logic and tracking
+  reported_by_remote_id: z.number().optional().nullable(),
+  add1_rad_remote_id: z.number().optional().nullable(),
+  add2_rad_remote_id: z.number().optional().nullable(),
+  add3_rad_remote_id: z.number().optional().nullable(),
+  modality_remote_id: z.number().optional().nullable(),
+  procedure_remote_id: z.number().optional().nullable(),
+  study_source_remote_id: z.number().optional().nullable(),
 });
 
 const RefDataSchema = z.object({
@@ -250,37 +259,64 @@ async function upsertStudies(instanceId: string, studies: any[]) {
   const CHUNK = 200; // Smaller chunks for better reliability
   for (let i = 0; i < toUpsert.length; i += CHUNK) {
     const chunk = toUpsert.slice(i, i + CHUNK);
-    await Promise.all(
-      chunk.map((s) => {
+    
+    // We process in a transaction per chunk for better atomicity and performance
+    await prisma.$transaction(async (tx: any) => {
+      for (const s of chunk) {
         const compositeKey = `${instanceId}:${s.workflow_id}`;
-        return prisma.study.upsert({
+        
+        // Addendum Logic: Add3 > Add2 > Add1 > ReportedBy
+        const finalRadRemoteId = s.add3_rad_remote_id 
+          ?? s.add2_rad_remote_id 
+          ?? s.add1_rad_remote_id 
+          ?? s.reported_by_remote_id;
+
+        let finalRadName = s.radiologist || "Unknown";
+
+        // If precedence picked an addendum rad, try to resolve their name via alias
+        if (finalRadRemoteId && finalRadRemoteId !== s.reported_by_remote_id) {
+          const radAlias = await tx.radiologistAlias.findFirst({
+            where: { remote_id: finalRadRemoteId, instance_id: instanceId }
+          });
+          if (radAlias) {
+            finalRadName = radAlias.alias_name;
+          } else {
+            finalRadName = `Unknown Rad (ID: ${finalRadRemoteId})`;
+          }
+        }
+
+        const data = {
+          composite_key: compositeKey,
+          instance_id: instanceId,
+          workflow_id: String(s.workflow_id),
+          mrn: s.mrn,
+          procedure_raw: s.procedure_name,
+          report_dt: s.report_completed_at ? new Date(s.report_completed_at) : null,
+          hospital_name: s.hospital_name,
+          final_rad_name: finalRadName,
+          modality: s.modality,
+          image_count: s.image_count,
+          patient_name: s.patient_name,
+          
+          // Store remote IDs
+          reported_by_remote_id: s.reported_by_remote_id,
+          add1_rad_remote_id: s.add1_rad_remote_id,
+          add2_rad_remote_id: s.add2_rad_remote_id,
+          add3_rad_remote_id: s.add3_rad_remote_id,
+          final_rad_remote_id: finalRadRemoteId,
+          modality_remote_id: s.modality_remote_id,
+          procedure_remote_id: s.procedure_remote_id,
+          study_source_remote_id: s.study_source_remote_id,
+        };
+
+        await tx.study.upsert({
           where: { composite_key: compositeKey },
-          create: {
-            composite_key: compositeKey,
-            instance_id: instanceId,
-            workflow_id: String(s.workflow_id),
-            mrn: s.mrn,
-            procedure_raw: s.procedure_name,
-            report_dt: s.report_completed_at ? new Date(s.report_completed_at) : null,
-            hospital_name: s.hospital_name,
-            final_rad_name: s.radiologist,
-            modality: s.modality,
-            image_count: s.image_count,
-            patient_name: s.patient_name,
-          },
-          update: {
-            mrn: s.mrn,
-            procedure_raw: s.procedure_name,
-            report_dt: s.report_completed_at ? new Date(s.report_completed_at) : null,
-            hospital_name: s.hospital_name,
-            final_rad_name: s.radiologist,
-            modality: s.modality,
-            image_count: s.image_count,
-            patient_name: s.patient_name,
-          },
+          create: data,
+          update: data,
         });
-      })
-    );
+      }
+    }, { timeout: 15000 });
+    
     upserted += chunk.length;
   }
 
