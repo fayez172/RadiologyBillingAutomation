@@ -16,7 +16,9 @@ interface DbInstance {
   sync_time: string;
   last_synced_at: string | null;
   agent_last_seen_at: string | null;
+  agent_last_error: string | null;
   agent_mode: boolean;
+  status: 'ONLINE' | 'STALE' | 'OFFLINE';
 }
 
 export default function DbInstancesPage() {
@@ -301,14 +303,32 @@ export default function DbInstancesPage() {
                     : 'Never'}
                 </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Agent Status</span>
-                <span className={`font-medium flex items-center gap-1.5 ${instance.agent_last_seen_at && (new Date().getTime() - new Date(instance.agent_last_seen_at).getTime() < 300000) ? 'text-emerald-400' : 'text-red-400'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${instance.agent_last_seen_at && (new Date().getTime() - new Date(instance.agent_last_seen_at).getTime() < 300000) ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
-                  {instance.agent_last_seen_at 
-                    ? `Seen ${new Date(instance.agent_last_seen_at).toLocaleTimeString()}`
-                    : 'Disconnected'}
-                </span>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Agent Status</span>
+                  <span className={`font-medium flex items-center gap-1.5 ${
+                    instance.status === 'ONLINE' ? 'text-emerald-400' : 
+                    instance.status === 'STALE' ? 'text-amber-400' : 'text-red-400'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      instance.status === 'ONLINE' ? 'bg-emerald-400 animate-pulse' : 
+                      instance.status === 'STALE' ? 'bg-amber-400' : 'bg-red-400'
+                    }`} />
+                    {instance.status === 'ONLINE' ? 'Online' : 
+                     instance.status === 'STALE' ? 'Stale' : 'Offline'}
+                  </span>
+                </div>
+                {instance.agent_last_seen_at && (
+                  <div className="flex justify-between text-[10px] opacity-70">
+                    <span>Last seen:</span>
+                    <span>{new Date(instance.agent_last_seen_at).toLocaleString()}</span>
+                  </div>
+                )}
+                {instance.agent_last_error && (
+                  <div className="mt-1 p-1.5 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-[10px] break-words">
+                    <strong>Error:</strong> {instance.agent_last_error}
+                  </div>
+                )}
               </div>
             </div>
           </div>

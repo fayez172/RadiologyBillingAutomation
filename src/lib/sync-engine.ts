@@ -13,12 +13,13 @@ export async function syncReferenceData(instanceId: string) {
   let ownerIds = [3];
   try {
     const parsed = JSON.parse(instance.owner_ids);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      ownerIds = parsed;
+    if (Array.isArray(parsed)) {
+      ownerIds = parsed.map(id => Number(id)).filter(id => !isNaN(id));
     }
   } catch (e) {
     console.warn(`[SYNC-REF] Invalid owner_ids format for instance ${instance.name}. Defaulting to [3].`);
   }
+  if (ownerIds.length === 0) ownerIds = [3];
   const ownerIdsStr = ownerIds.join(',');
 
   try {
@@ -217,12 +218,15 @@ export async function syncStudies(instanceId: string, customDateFrom?: Date, cus
   const repDb = instance.reporting_db;
   const radDb = instance.radiology_db;
 
-  // Parse owner IDs
+  // Parse owner IDs safely
   let ownerIds = [3];
   try {
     const parsed = JSON.parse(instance.owner_ids);
-    if (Array.isArray(parsed) && parsed.length > 0) ownerIds = parsed;
+    if (Array.isArray(parsed)) {
+      ownerIds = parsed.map(id => Number(id)).filter(id => !isNaN(id));
+    }
   } catch (e) {}
+  if (ownerIds.length === 0) ownerIds = [3];
   const ownerIdsStr = ownerIds.join(',');
 
   const query = `
@@ -280,7 +284,7 @@ export async function syncStudies(instanceId: string, customDateFrom?: Date, cus
           if (!row.WorkflowID) continue;
           
           const compositeKey = `${instanceId}:${row.WorkflowID}`;
-          const currentStudy = await tx.study.findUnique({ where: { id: compositeKey } });
+          const currentStudy = await tx.study.findUnique({ where: { composite_key: compositeKey } });
           
           // Addendum Logic: Add3 > Add2 > Add1 > ReportedBy
           const finalRadRemoteId = Number(row.Add3Read1RadiologistID 
@@ -335,14 +339,13 @@ export async function syncStudies(instanceId: string, customDateFrom?: Date, cus
                 hospital_name: row.HospitalName,
                 procedure_raw: row.ProcedureName,
                 modality: row.Modality,
-                id: { not: compositeKey }
+                instance_id: instanceId, // limit dup check to same instance
               }
             });
 
             await tx.study.create({
               data: {
                 ...data,
-                id: compositeKey,
                 is_duplicate: !!potentialDup,
                 duplicate_group_id: potentialDup ? (potentialDup.duplicate_group_id || potentialDup.id) : null,
               }
@@ -358,7 +361,7 @@ export async function syncStudies(instanceId: string, customDateFrom?: Date, cus
 
           } else {
             await tx.study.update({
-              where: { id: compositeKey },
+              where: { composite_key: compositeKey },
               data
             });
             updatedCount++;

@@ -33,6 +33,8 @@ enum AgentCommandStatus {
   IN_PROGRESS
   COMPLETED
   FAILED
+  CANCEL_PENDING
+  CANCEL_SENT
   CANCELLED
 }
 
@@ -74,6 +76,7 @@ model DbInstance {
   // Edge Agent fields
   agent_api_key        String?   // HMAC key issued to the edge agent for this instance
   agent_last_seen_at   DateTime? // Last time the edge agent pushed or sent a heartbeat
+  agent_last_error     String?   // Last error reported by the agent
   agent_mode           Boolean   @default(false) // true = edge agent push, false = direct pull
 
   studies              Study[]
@@ -509,6 +512,7 @@ model AuditLog {
 model AgentPushLog {
   id             String   @id @default(uuid())
   instance_id    String
+  message_id     String?  // Unique ID per payload from agent
   pushed_at      DateTime
   is_backfill    Boolean  @default(false)
   is_heartbeat   Boolean  @default(false)
@@ -521,6 +525,18 @@ model AgentPushLog {
 
   instance       DbInstance @relation(fields: [instance_id], references: [id])
 
+  @@unique([instance_id, message_id])
   @@index([instance_id])
   @@index([pushed_at])
+}
+
+model AgentNonce {
+  id          String   @id @default(uuid())
+  instance_id String
+  nonce       String
+  expires_at  DateTime
+  created_at  DateTime @default(now())
+
+  @@unique([instance_id, nonce])
+  @@index([expires_at])
 }

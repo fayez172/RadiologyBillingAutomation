@@ -45,9 +45,9 @@ export async function PATCH(req: Request) {
     if (action === 'CANCEL') {
       await prisma.agentCommand.update({
         where: { id },
-        data: { status: 'CANCELLED' }
+        data: { status: 'CANCEL_PENDING' }
       });
-      return success({ message: 'Task marked for cancellation' });
+      return success({ message: 'Cancellation request sent to agent' });
     }
 
     if (action === 'RETRY') {

@@ -59,7 +59,18 @@ class StateDB:
                     payload    TEXT NOT NULL,
                     attempts   INTEGER DEFAULT 0,
                     created_at TEXT,
-                    next_retry TEXT
+                    next_retry TEXT,
+                    error_message TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS command_cache (
+                    command_id    TEXT PRIMARY KEY,
+                    command_type  TEXT,
+                    payload       TEXT, -- JSON string
+                    status        TEXT, -- PENDING, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
+                    progress      INTEGER DEFAULT 0,
+                    error_message TEXT,
+                    updated_at    TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS settings (
@@ -67,6 +78,13 @@ class StateDB:
                     value TEXT
                 );
             """)
+            # Migration: Ensure new columns exist
+            try:
+                conn.execute("ALTER TABLE command_cache ADD COLUMN command_type TEXT")
+            except: pass
+            try:
+                conn.execute("ALTER TABLE command_cache ADD COLUMN payload TEXT")
+            except: pass
 
     # ── CDC Cursor ─────────────────────────────────────────────────────────────
 
@@ -129,14 +147,53 @@ class StateDB:
         row = self.get_backfill(instance_id)
         return bool(row and row["completed"])
 
-    # ── Retry Queue ────────────────────────────────────────────────────────────
+    # ── Command Cache ──────────────────────────────────────────────────────────
 
-    def enqueue_retry(self, payload: dict) -> None:
+    def get_command_status(self, command_id: str) -> Optional[sqlite3.Row]:
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT * FROM command_cache WHERE command_id = ?",
+                (command_id,),
+            ).fetchone()
+
+    def get_pending_command(self) -> Optional[sqlite3.Row]:
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT * FROM command_cache WHERE status = 'PENDING' LIMIT 1"
+            ).fetchone()
+
+    def update_command(
+        self, 
+        command_id: str, 
+        status: str, 
+        progress: int = 0, 
+        error: str = None,
+        command_type: str = None,
+        payload: dict = None
+    ) -> None:
+        now = _utcnow()
+        payload_str = json.dumps(payload) if payload else None
         with self._conn() as conn:
             conn.execute("""
-                INSERT INTO retry_queue (payload, created_at, next_retry)
-                VALUES (?, ?, ?)
-            """, (json.dumps(payload), _utcnow(), _utcnow()))
+                INSERT INTO command_cache (command_id, status, progress, error_message, updated_at, command_type, payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(command_id) DO UPDATE SET
+                    status        = excluded.status,
+                    progress      = excluded.progress,
+                    error_message = excluded.error_message,
+                    updated_at    = excluded.updated_at,
+                    command_type  = COALESCE(excluded.command_type, command_cache.command_type),
+                    payload       = COALESCE(excluded.payload, command_cache.payload)
+            """, (command_id, status, progress, error, now, command_type, payload_str))
+
+    # ── Retry Queue ────────────────────────────────────────────────────────────
+
+    def enqueue_retry(self, payload: dict, error_message: str = None) -> None:
+        with self._conn() as conn:
+            conn.execute("""
+                INSERT INTO retry_queue (payload, created_at, next_retry, error_message)
+                VALUES (?, ?, ?, ?)
+            """, (json.dumps(payload), _utcnow(), _utcnow(), error_message))
 
     def get_due_retries(self, limit: int = 10) -> list[sqlite3.Row]:
         with self._conn() as conn:
@@ -152,14 +209,15 @@ class StateDB:
         with self._conn() as conn:
             conn.execute("DELETE FROM retry_queue WHERE id = ?", (retry_id,))
 
-    def increment_retry(self, retry_id: int, next_retry_iso: str) -> None:
+    def increment_retry(self, retry_id: int, next_retry_iso: str, error_message: str = None) -> None:
         with self._conn() as conn:
             conn.execute("""
                 UPDATE retry_queue
                 SET attempts   = attempts + 1,
-                    next_retry = ?
+                    next_retry = ?,
+                    error_message = COALESCE(?, error_message)
                 WHERE id = ?
-            """, (next_retry_iso, retry_id))
+            """, (next_retry_iso, error_message, retry_id))
 
 
     # ── Settings ───────────────────────────────────────────────────────────────

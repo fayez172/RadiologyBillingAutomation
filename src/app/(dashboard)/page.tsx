@@ -251,7 +251,7 @@ export default function DashboardPage() {
           <QuickAction 
             title="Unmapped" 
             subtitle="Classify procedures" 
-            href="/config/unmapped-procedures" 
+            href="/config/mappings" 
             icon={Search} 
             colorClass="bg-amber-500/10 text-amber-400 group-hover:bg-amber-500/20"
           />

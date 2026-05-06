@@ -1,12 +1,15 @@
-instance_id: "58f400d0-9ed4-4d58-ab57-5cb343fe8e46"
-api_key: "test_key_123"
-api_endpoint: "http://localhost:3000"
+# TeleRad Edge Agent Configuration
+# Placeholders like ${VAR} will be resolved from environment variables.
+
+instance_id: "${AGENT_INSTANCE_ID}"
+api_key: "${AGENT_API_KEY}"
+api_endpoint: "${AGENT_API_ENDPOINT}"
 
 mssql:
-  host: "172.28.28.203"
+  host: "${MSSQL_HOST}"
   port: 1433
-  user: "sa"
-  password: "SQLAdmin1"
+  user: "${MSSQL_USER}"
+  password: "${MSSQL_PASSWORD}"
   radiology_db: "RADSpaRISRadiologyDB"
   reporting_db: "RADSpaRISReportingDB"
 
@@ -22,3 +25,5 @@ polling:
 
 logging:
   level: "INFO"
+  max_file_size_mb: 5
+  backup_count: 3

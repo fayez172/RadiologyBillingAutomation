@@ -19,8 +19,8 @@ export default function StudiesPage() {
   const [search, setSearch] = useState('');
   
   // Filters
-  const [startDate, setStartDate] = useState(format(startOfMonth(new Date('2026-02-01')), 'yyyy-MM-dd'));
-  const [endDate, setEndDate] = useState(format(endOfMonth(new Date('2026-02-01')), 'yyyy-MM-dd'));
+  const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [modality, setModality] = useState('ALL');
   const [hospital, setHospital] = useState('ALL');
   const [status, setStatus] = useState('ALL');

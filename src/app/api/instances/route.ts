@@ -6,6 +6,7 @@ import { success, error } from '@/lib/api-response';
 import { audit } from '@/lib/audit';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { getAgentStatus } from '@/lib/agent-utils';
 
 export async function GET() {
   try {
@@ -29,11 +30,18 @@ export async function GET() {
         owner_ids: true,
         auto_sync: true,
         sync_time: true,
-        // NEVER send encrypted password or plaintext password to client
+        agent_mode: true,
+        agent_last_seen_at: true,
+        agent_last_error: true,
       },
     });
 
-    return success(instances);
+    const instancesWithHealth = instances.map(inst => ({
+      ...inst,
+      status: getAgentStatus(inst as any)
+    }));
+
+    return success(instancesWithHealth);
   } catch (e: any) {
     return error('FETCH_FAILED', e.message);
   }

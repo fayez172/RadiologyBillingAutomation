@@ -77,6 +77,8 @@ export default function TasksPage() {
       case 'IN_PROGRESS': return <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20"><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> In Progress</Badge>;
       case 'COMPLETED': return <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/20"><CheckCircle className="w-3 h-3 mr-1" /> Completed</Badge>;
       case 'FAILED': return <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20"><AlertCircle className="w-3 h-3 mr-1" /> Failed</Badge>;
+      case 'CANCEL_PENDING': return <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/20"><Clock className="w-3 h-3 mr-1" /> Cancellation Pending</Badge>;
+      case 'CANCEL_SENT': return <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20"><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Cancellation Sent</Badge>;
       case 'CANCELLED': return <Badge variant="outline" className="bg-slate-500/10 text-slate-400 border-slate-500/20"><XCircle className="w-3 h-3 mr-1" /> Cancelled</Badge>;
       default: return <Badge>{status}</Badge>;
     }
@@ -147,7 +149,7 @@ export default function TasksPage() {
                       {task.retry_count > 0 && <div className="text-amber-500/70">Retry #{task.retry_count}</div>}
                     </TableCell>
                     <TableCell className="text-right space-x-2">
-                      {(task.status === 'PENDING' || task.status === 'SENT' || task.status === 'IN_PROGRESS') && (
+                      {(['PENDING', 'SENT', 'IN_PROGRESS'].includes(task.status)) && (
                         <Button 
                           variant="ghost" 
                           size="icon" 
@@ -159,7 +161,7 @@ export default function TasksPage() {
                           {processing === task.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
                         </Button>
                       )}
-                      {(task.status === 'FAILED' || task.status === 'CANCELLED' || task.status === 'COMPLETED') && (
+                      {(['FAILED', 'CANCELLED', 'COMPLETED'].includes(task.status)) && (
                         <Button 
                           variant="ghost" 
                           size="icon" 

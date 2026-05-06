@@ -22,7 +22,7 @@ from .config import AgentConfig, load_config
 from .state import StateDB
 from . import cdc_reader, runner
 
-# ── Logging Setup ─────────────────────────────────────────────────────────────
+# == Logging Setup =============================================================
 
 def setup_logging(cfg: AgentConfig, log_dir: Path) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -41,7 +41,10 @@ def setup_logging(cfg: AgentConfig, log_dir: Path) -> None:
     )
     file_handler.setFormatter(fmt)
 
-    stream_handler = logging.StreamHandler(sys.stdout)
+    # Wrap stdout to handle encoding errors (important for Windows service logs)
+    import io
+    safe_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    stream_handler = logging.StreamHandler(safe_stdout)
     stream_handler.setFormatter(fmt)
 
     logging.basicConfig(
@@ -50,7 +53,7 @@ def setup_logging(cfg: AgentConfig, log_dir: Path) -> None:
     )
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# == CLI =======================================================================
 
 def _resolve_paths(ctx_obj: dict) -> tuple[AgentConfig, StateDB, Path]:
     base = ctx_obj["base_dir"]
@@ -132,6 +135,14 @@ def run(ctx: click.Context) -> None:
         id="heartbeat",
         max_instances=1,
     )
+    scheduler.add_job(
+        runner.process_remote_commands,
+        "interval",
+        seconds=10,
+        args=[cfg, state],
+        id="command_processor",
+        max_instances=1,
+    )
 
     log.info(
         "Scheduler started. FinishedReport poll: every %ds | Reference: every %dh",
@@ -151,7 +162,7 @@ def backfill(ctx: click.Context, from_date: str, to_date: str, batch_size: int) 
     cfg, state, base = _resolve_paths(ctx.obj)
     setup_logging(cfg, base / "logs")
     log = logging.getLogger("agent.backfill")
-    log.info("Manual backfill: %s → %s (batch %d)", from_date, to_date, batch_size)
+    log.info("Manual backfill: %s -> %s (batch %d)", from_date, to_date, batch_size)
 
     # Override config with CLI values for this run
     cfg.backfill.enabled    = True
@@ -193,9 +204,9 @@ def status(ctx: click.Context) -> None:
     bf = state.get_backfill(cfg.instance_id)
     if bf:
         click.echo(
-            f"  Backfill : {'✅ Complete' if bf['completed'] else '⏳ In progress'}"
+            f"  Backfill : {'[OK] Complete' if bf['completed'] else '[WAIT] In progress'}"
         )
-        click.echo(f"    Range  : {bf['from_date']} → {bf['to_date']}")
+        click.echo(f"    Range  : {bf['from_date']} -> {bf['to_date']}")
         click.echo(f"    Pushed : {bf['total_pushed']} rows")
 
     click.echo(f"\n  CDC Cursors:")

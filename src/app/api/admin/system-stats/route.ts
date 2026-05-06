@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { success, error } from '@/lib/api-response';
+import { getAgentStatus } from '@/lib/agent-utils';
 
 export async function GET() {
   try {
@@ -18,6 +19,8 @@ export async function GET() {
         name: true,
         is_active: true,
         last_synced_at: true,
+        agent_mode: true,
+        agent_last_seen_at: true,
       }
     });
 
@@ -40,7 +43,7 @@ export async function GET() {
     return success({
       instances: instances.map((inst: any) => ({
         ...inst,
-        status: inst.is_active ? (inst.last_synced_at ? 'HEALTHY' : 'PENDING') : 'INACTIVE'
+        status: getAgentStatus(inst)
       })),
       counts: {
         modalities,

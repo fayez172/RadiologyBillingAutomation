@@ -2,56 +2,63 @@
  * POST /api/ingest/[instanceId]
  *
  * Receives study data pushed by the TeleRad Edge Agent.
- * - Validates HMAC-SHA256 signature
+ * - Validates HMAC-SHA256 signature (timestamp + nonce + body)
+ * - Replay protection via X-Timestamp and X-Nonce
  * - Upserts studies (handles insert, update, delete)
  * - Upserts reference data if present
- * - Triggers BullMQ mapping engine for new/updated studies
+ * - Triggers mapping engine for new/updated studies
  * - Handles remote backfill commands from billing admin
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { mapUnmappedStudies } from "@/lib/mapping-engine";
+import { validateNonce, NonceError } from "@/lib/nonce-service";
 
-// ── Types ──────────────────────────────────────────────────────────────────────
+// ── Validation Schemas ────────────────────────────────────────────────────────
 
-interface StudyPayload {
-  op: "insert" | "update" | "delete";
-  workflow_id: number;
-  mrn?: string;
-  procedure_name?: string;
-  report_completed_at?: string;
-  hospital_name?: string;
-  radiologist?: string;
-  modality?: string;
-  image_count?: number;
-  patient_name?: string;
-}
+const StudySchema = z.object({
+  op: z.enum(["insert", "update", "delete"]),
+  workflow_id: z.union([z.number(), z.string()]),
+  mrn: z.string().optional().nullable(),
+  procedure_name: z.string().optional().nullable(),
+  report_completed_at: z.string().optional().nullable(),
+  hospital_name: z.string().optional().nullable(),
+  radiologist: z.string().optional().nullable(),
+  modality: z.string().optional().nullable(),
+  image_count: z.number().optional().nullable(),
+  patient_name: z.string().optional().nullable(),
+});
 
-interface RefDataPayload {
-  radiologists?: Array<{ ID: number; DisplayName: string; FirstName?: string; LastName?: string; Active: boolean }>;
-  modalities?:   Array<{ ID: number; DisplayName: string; Code: string; Active: boolean }>;
-  studysource?:  Array<{ ID: number; Name: string; Active: boolean }>;
-}
+const RefDataSchema = z.object({
+  radiologists: z.array(z.record(z.any())).optional(),
+  modalities: z.array(z.record(z.any())).optional(),
+  studysource: z.array(z.record(z.any())).optional(),
+  procedure: z.array(z.record(z.any())).optional(),
+}).optional();
 
-interface IngestBody {
-  payload_version: string;
-  instance_id: string;
-  pushed_at: string;
-  is_backfill?: boolean;
-  is_heartbeat?: boolean;
-  studies: StudyPayload[];
-  ref_data?: RefDataPayload;
-  backfill_progress?: {
-    total_pushed: number;
-    batch_offset: number;
-    is_complete: boolean;
-  };
-  command_id?: string;
-  command_status?: "SUCCESS" | "FAILED" | "IN_PROGRESS";
-  command_error?: string;
-}
+const IngestSchema = z.object({
+  payload_version: z.string(),
+  instance_id: z.string(),
+  message_id: z.string().uuid(),
+  pushed_at: z.string(),
+  is_backfill: z.boolean().optional(),
+  is_heartbeat: z.boolean().optional(),
+  studies: z.array(StudySchema).optional(),
+  ref_data: RefDataSchema,
+  backfill_progress: z.object({
+    total_pushed: z.number().optional(),
+    batch_offset: z.number().optional(),
+    is_complete: z.boolean().optional(),
+  }).optional(),
+  command_id: z.string().optional(),
+  command_status: z.enum(["SUCCESS", "FAILED", "IN_PROGRESS", "CANCELLED"]).optional(),
+  command_error: z.string().optional(),
+});
+
+type IngestBody = z.infer<typeof IngestSchema>;
 
 // ── Handler ────────────────────────────────────────────────────────────────────
 
@@ -65,106 +72,157 @@ export async function POST(
     const rawBody = await req.arrayBuffer();
     const bodyBytes = Buffer.from(rawBody);
 
-    // 1. Load instance and validate
+    // 1. Security Headers
+    const signature = req.headers.get("X-Signature") ?? "";
+    const timestamp = req.headers.get("X-Timestamp") ?? "";
+    const nonce = req.headers.get("X-Nonce") ?? "";
+
+    if (!signature || !timestamp || !nonce) {
+      return NextResponse.json({ error: "Missing security headers" }, { status: 401 });
+    }
+
+    // 2. Load instance and validate
     const instance = await prisma.dbInstance.findUnique({
       where: { id: instanceId },
-      select: { id: true, agent_api_key: true, is_active: true, name: true },
+      select: { id: true, agent_api_key: true, is_active: true },
     });
 
-    if (!instance || !instance.is_active) {
-      console.warn(`[ingest] Instance not found or inactive: ${instanceId}`);
-      return NextResponse.json({ error: "Instance not found" }, { status: 404 });
-    }
-    if (!instance.agent_api_key) {
-      console.warn(`[ingest] Agent not configured for instance: ${instanceId}`);
-      return NextResponse.json({ error: "Agent not configured for this instance" }, { status: 403 });
+    if (!instance || !instance.is_active || !instance.agent_api_key) {
+      return NextResponse.json({ error: "Unauthorized or inactive instance" }, { status: 403 });
     }
 
-    // 2. Verify HMAC signature
-    const signature = req.headers.get("X-Signature") ?? "";
+    // 3. Replay Protection
+    try {
+      await validateNonce(instanceId, nonce, timestamp);
+    } catch (err) {
+      if (err instanceof NonceError) {
+        return NextResponse.json({ error: err.message }, { status: 401 });
+      }
+      throw err;
+    }
+
+    // 4. Verify HMAC signature
+    // Base = timestamp + nonce + body
+    const hmacBase = Buffer.concat([
+      Buffer.from(timestamp),
+      Buffer.from(nonce),
+      bodyBytes
+    ]);
     const expected = createHmac("sha256", instance.agent_api_key)
-      .update(bodyBytes)
+      .update(hmacBase)
       .digest("hex");
 
     if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
-      console.warn(`[ingest] Invalid signature for instance: ${instanceId}`);
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
-    // 3. Parse body
+    // 5. Parse and Validate Body
     let body: IngestBody;
     try {
-      body = JSON.parse(bodyBytes.toString("utf-8"));
+      const parsed = JSON.parse(bodyBytes.toString("utf-8"));
+      body = IngestSchema.parse(parsed);
     } catch (err) {
-      console.warn(`[ingest] Invalid JSON from instance: ${instanceId}`);
-      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid payload schema", details: err }, { status: 400 });
     }
 
-    // 4. Update agent last seen
-    await prisma.dbInstance.update({
-      where: { id: instanceId },
-      data: { agent_last_seen_at: new Date(body.pushed_at) },
+    // 5.5 Idempotency Check
+    const existingLog = await prisma.agentPushLog.findUnique({
+      where: { 
+        instance_id_message_id: { 
+          instance_id: instanceId, 
+          message_id: body.message_id 
+        } 
+      },
+      select: { id: true }
     });
 
-    // 4.1 Update Command Status & Progress
-    if (body.command_id) {
-      const isComplete = body.backfill_progress?.is_complete || body.command_status === "SUCCESS";
-      const isFailed = body.command_status === "FAILED";
-
-      await prisma.agentCommand.update({
-        where: { id: body.command_id },
-        data: {
-          status: isComplete ? "COMPLETED" : isFailed ? "FAILED" : "IN_PROGRESS",
-          error_message: body.command_error,
-          progress: body.backfill_progress?.is_complete ? 100 : undefined,
-          started_at: body.is_backfill ? new Date() : undefined,
-          completed_at: isComplete || isFailed ? new Date() : undefined,
-        },
+    if (existingLog) {
+      return NextResponse.json({ 
+        status: "IDEMPOTENT_OK", 
+        message: "Message already processed",
+        command: await getPendingCommand(instanceId) 
       });
+    }
+
+    // 6. Update agent last seen
+    const lastSeenAt = new Date(body.pushed_at);
+    await prisma.dbInstance.update({
+      where: { id: instanceId },
+      data: { 
+        agent_last_seen_at: lastSeenAt,
+        agent_last_error: body.command_status === "FAILED" ? body.command_error : undefined
+      },
+    });
+
+    // 7. Update Command Status & Progress
+    if (body.command_id) {
+      const command = await prisma.agentCommand.findUnique({
+        where: { id: body.command_id }
+      });
+
+      // Ownership and Transition Guards
+      if (command && command.instance_id === instanceId) {
+        const terminalStates = ["COMPLETED", "FAILED", "CANCELLED"];
+        if (!terminalStates.includes(command.status)) {
+          const isComplete = body.command_status === "SUCCESS" || body.backfill_progress?.is_complete;
+          const isFailed = body.command_status === "FAILED";
+          const isCancelled = body.command_status === "CANCELLED";
+
+          let status: any = "IN_PROGRESS";
+          if (isComplete) status = "COMPLETED";
+          if (isFailed) status = "FAILED";
+          if (isCancelled) status = "CANCELLED";
+
+          await prisma.agentCommand.update({
+            where: { id: body.command_id },
+            data: {
+              status,
+              error_message: body.command_error,
+              progress: body.backfill_progress?.is_complete ? 100 : undefined,
+              started_at: (body.is_backfill && !command.started_at) ? new Date() : undefined,
+              completed_at: isComplete || isFailed || isCancelled ? new Date() : undefined,
+            },
+          });
+        }
+      }
     }
 
     const logEntry = {
       instance_id: instanceId,
-      pushed_at: new Date(body.pushed_at),
+      message_id: body.message_id,
+      pushed_at: lastSeenAt,
       is_backfill: body.is_backfill ?? false,
       is_heartbeat: body.is_heartbeat ?? false,
       studies_count: 0,
       deletes_count: 0,
       ref_data_count: 0,
-      status: "OK" as string,
+      status: "OK",
       error_message: null as string | null,
     };
 
-    // 5. Heartbeat — no study processing needed
+    // 8. Heartbeat — no study processing needed
     if (body.is_heartbeat) {
       await prisma.agentPushLog.create({ data: logEntry });
       return NextResponse.json({ accepted: 0, command: await getPendingCommand(instanceId) });
     }
 
-    // 6. Upsert reference data
+    // 9. Upsert reference data
     if (body.ref_data) {
       const refCount = await upsertRefData(instanceId, body.ref_data);
       logEntry.ref_data_count = refCount;
     }
 
-    // 7. Upsert studies
+    // 10. Upsert studies
     const { upserted, deleted } = await upsertStudies(instanceId, body.studies || []);
     logEntry.studies_count = upserted;
     logEntry.deletes_count = deleted;
 
-    // 8. Trigger mapping engine (skip during backfill — run once at end)
+    // 11. Trigger mapping engine
     if (!body.is_backfill && upserted > 0) {
-      // Direct call instead of queue as BullMQ is not configured
       mapUnmappedStudies(instanceId).catch(err => console.error("[ingest] Background mapping failed", err));
     } else if (body.is_backfill && body.backfill_progress?.is_complete) {
       mapUnmappedStudies(instanceId).catch(err => console.error("[ingest] Post-backfill mapping failed", err));
     }
-
-    // 9. Update last_synced_at on the instance
-    await prisma.dbInstance.update({
-      where: { id: instanceId },
-      data: { last_synced_at: new Date(body.pushed_at) },
-    });
 
     await prisma.agentPushLog.create({ data: logEntry });
 
@@ -176,39 +234,20 @@ export async function POST(
 
   } catch (err) {
     console.error("[ingest] Critical error processing push from", instanceId, err);
-    
-    // Attempt to log error to database
-    try {
-      await prisma.agentPushLog.create({
-        data: {
-          instance_id: instanceId,
-          pushed_at: new Date(),
-          status: "ERROR",
-          error_message: err instanceof Error ? err.message : String(err),
-        }
-      });
-    } catch (dbErr) {
-      console.error("[ingest] Failed to log error to database", dbErr);
-    }
-
-    return NextResponse.json({ error: "Internal server error", details: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-// ── Study Upsert ──────────────────────────────────────────────────────────────
+// ── Helper Functions (Logic copied and hardened from original) ────────────────
 
-async function upsertStudies(
-  instanceId: string,
-  studies: StudyPayload[]
-): Promise<{ upserted: number; deleted: number }> {
+async function upsertStudies(instanceId: string, studies: any[]) {
   let upserted = 0;
   let deleted = 0;
 
   const toUpsert = studies.filter((s) => s.op === "insert" || s.op === "update");
   const toDelete = studies.filter((s) => s.op === "delete");
 
-  // Batch upserts in chunks of 500
-  const CHUNK = 500;
+  const CHUNK = 200; // Smaller chunks for better reliability
   for (let i = 0; i < toUpsert.length; i += CHUNK) {
     const chunk = toUpsert.slice(i, i + CHUNK);
     await Promise.all(
@@ -245,12 +284,11 @@ async function upsertStudies(
     upserted += chunk.length;
   }
 
-  // Mark deleted studies
   if (toDelete.length > 0) {
     const deleteKeys = toDelete.map((s) => `${instanceId}:${s.workflow_id}`);
     await prisma.study.updateMany({
       where: { composite_key: { in: deleteKeys } },
-      data: { mapping_confidence: "UNMAPPED" },  // soft-delete marker
+      data: { mapping_confidence: "UNMAPPED" }, 
     });
     deleted = toDelete.length;
   }
@@ -258,105 +296,108 @@ async function upsertStudies(
   return { upserted, deleted };
 }
 
-// ── Reference Data Upsert ─────────────────────────────────────────────────────
-
-async function upsertRefData(instanceId: string, ref: RefDataPayload): Promise<number> {
+async function upsertRefData(instanceId: string, ref: any) {
   let count = 0;
-
   if (ref.radiologists) {
-    await Promise.all(
-      ref.radiologists.map((r) =>
-        prisma.remoteRadiologist.upsert({
-          where: { remote_id_instance_id: { remote_id: r.ID, instance_id: instanceId } },
-          create: {
-            remote_id: r.ID,
-            instance_id: instanceId,
-            display_name: r.DisplayName,
-            first_name: r.FirstName ?? null,
-            last_name: r.LastName ?? null,
-            is_active: r.Active,
-          },
-          update: {
-            display_name: r.DisplayName,
-            is_active: r.Active,
-          },
-        })
-      )
-    );
+    for (const r of ref.radiologists) {
+      const remoteId = r.ID ?? r.id;
+      const displayName = r.DisplayName ?? r.display_name ?? "Unknown";
+      const firstName = r.FirstName ?? r.first_name ?? null;
+      const lastName = r.LastName ?? r.last_name ?? null;
+      const isActive = r.Active ?? r.active ?? true;
+
+      await prisma.remoteRadiologist.upsert({
+        where: { remote_id_instance_id: { remote_id: remoteId, instance_id: instanceId } },
+        create: {
+          remote_id: remoteId, instance_id: instanceId, display_name: displayName,
+          first_name: firstName, last_name: lastName, is_active: isActive,
+        },
+        update: { display_name: displayName, is_active: isActive },
+      });
+    }
     count += ref.radiologists.length;
   }
-
   if (ref.modalities) {
-    await Promise.all(
-      ref.modalities.map((m) =>
-        prisma.remoteModality.upsert({
-          where: { remote_id_instance_id: { remote_id: m.ID, instance_id: instanceId } },
-          create: {
-            remote_id: m.ID,
-            instance_id: instanceId,
-            display_name: m.DisplayName,
-            code: m.Code,
-            is_active: m.Active,
-          },
-          update: { display_name: m.DisplayName, is_active: m.Active },
-        })
-      )
-    );
+    for (const m of ref.modalities) {
+      const remoteId = m.ID ?? m.id;
+      const displayName = m.DisplayName ?? m.display_name ?? "Unknown";
+      const code = m.Code ?? m.code ?? "UNK";
+      const isActive = m.Active ?? m.active ?? true;
+
+      await prisma.remoteModality.upsert({
+        where: { remote_id_instance_id: { remote_id: remoteId, instance_id: instanceId } },
+        create: { remote_id: remoteId, instance_id: instanceId, display_name: displayName, code: code, is_active: isActive },
+        update: { display_name: displayName, is_active: isActive },
+      });
+    }
     count += ref.modalities.length;
   }
-
   if (ref.studysource) {
-    await Promise.all(
-      ref.studysource.map((s) =>
-        prisma.remoteStudySource.upsert({
-          where: { remote_id_instance_id: { remote_id: s.ID, instance_id: instanceId } },
-          create: {
-            remote_id: s.ID,
-            instance_id: instanceId,
-            name: s.Name,
-            is_active: s.Active,
-          },
-          update: { name: s.Name, is_active: s.Active },
-        })
-      )
-    );
+    for (const s of ref.studysource) {
+      const remoteId = s.ID ?? s.id;
+      const name = s.Name ?? s.name ?? "Unknown";
+      const isActive = s.Active ?? s.active ?? true;
+
+      await prisma.remoteStudySource.upsert({
+        where: { remote_id_instance_id: { remote_id: remoteId, instance_id: instanceId } },
+        create: { remote_id: remoteId, instance_id: instanceId, name: name, is_active: isActive },
+        update: { name: name, is_active: isActive },
+      });
+    }
     count += ref.studysource.length;
   }
+  if (ref.procedure) {
+    for (const p of ref.procedure) {
+      // Map PascalCase from MSSQL to our schema
+      const remoteId = p.ID ?? p.id;
+      const name = p.Name ?? p.name ?? "Unknown";
+      const code = p.ProcedureCode ?? p.procedure_code;
+      const isActive = p.Active ?? p.active ?? true;
 
+      await prisma.remoteProcedure.upsert({
+        where: { remote_id_instance_id: { remote_id: remoteId, instance_id: instanceId } },
+        create: {
+          remote_id: remoteId,
+          instance_id: instanceId,
+          name: name,
+          procedure_code: code,
+          is_active: isActive,
+        },
+        update: {
+          name: name,
+          procedure_code: code,
+          is_active: isActive,
+        },
+      });
+    }
+    count += ref.procedure.length;
+  }
   return count;
 }
 
-// ── Remote Command ────────────────────────────────────────────────────────────
-
-/**
- * Check if there's a pending admin command for this instance.
- */
-async function getPendingCommand(instanceId: string): Promise<object | null> {
-  // 1. Check for cancellation requests first
+async function getPendingCommand(instanceId: string) {
+  // 1. Check for cancellation requests
   const cancelCmd = await prisma.agentCommand.findFirst({
-    where: {
-      instance_id: instanceId,
-      status: "CANCELLED",
-    },
+    where: { instance_id: instanceId, status: "CANCEL_PENDING" },
     orderBy: { updated_at: "desc" },
   });
-
+  
   if (cancelCmd) {
+    await prisma.agentCommand.update({
+      where: { id: cancelCmd.id },
+      data: { status: "CANCEL_SENT" },
+    });
     return { id: cancelCmd.id, type: "cancel" };
   }
 
-  // 2. Check for PENDING commands
+  // 2. Check for new commands
   const command = await prisma.agentCommand.findFirst({
-    where: {
-      instance_id: instanceId,
-      status: "PENDING",
-    },
+    where: { instance_id: instanceId, status: "PENDING" },
     orderBy: { created_at: "asc" },
   });
-
+  
   if (!command) return null;
 
-  // Mark as SENT so we don't deliver it twice
   await prisma.agentCommand.update({
     where: { id: command.id },
     data: { status: "SENT" },

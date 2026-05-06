@@ -57,6 +57,14 @@ def get_min_lsn(conn: pyodbc.Connection, capture_instance: str) -> bytes:
     return bytes(row[0])
 
 
+def increment_lsn(conn: pyodbc.Connection, lsn: bytes) -> bytes:
+    """Returns the next LSN after the given one, to avoid re-reading the same boundary."""
+    row = conn.execute("SELECT sys.fn_cdc_increment_lsn(?)", lsn).fetchone()
+    if row is None or row[0] is None:
+        return lsn
+    return bytes(row[0])
+
+
 # ── CDC Live Mode ──────────────────────────────────────────────────────────────
 
 def fetch_finished_report_changes(
@@ -134,14 +142,21 @@ def fetch_reference_changes(
         FROM cdc.fn_cdc_get_net_changes_{capture_instance}(?, ?, 'all with mask')
         ORDER BY __$start_lsn
     """
-    rows = conn.execute(sql, from_lsn, to_lsn).fetchall()
-    return [
-        {
-            "op": OPERATION_MAP.get(r[0], "unknown"),
-            **{col[0]: val for col, val in zip(conn.cursor().description or [], r[3:])},
-        }
-        for r in rows
-    ]
+    cursor = conn.execute(sql, from_lsn, to_lsn)
+    rows = cursor.fetchall()
+    
+    # Metadata columns are usually [0]start_lsn, [1]operation, [2]update_mask
+    # Data columns follow thereafter.
+    col_names = [c[0] for c in cursor.description]
+    data_col_names = col_names[3:]
+    
+    results = []
+    for r in rows:
+        results.append({
+            "op": OPERATION_MAP.get(r[1], "unknown"),
+            **dict(zip(data_col_names, r[3:])),
+        })
+    return results
 
 
 # ── Historical Backfill ────────────────────────────────────────────────────────

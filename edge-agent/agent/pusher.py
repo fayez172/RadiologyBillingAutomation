@@ -9,6 +9,7 @@ import hmac
 import json
 import logging
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -18,7 +19,7 @@ from .config import AgentConfig
 
 logger = logging.getLogger(__name__)
 
-AGENT_VERSION = "1.0.0"
+AGENT_VERSION = "1.1.0"
 
 
 class PushError(Exception):
@@ -28,8 +29,6 @@ class PushError(Exception):
 class Pusher:
     def __init__(self, cfg: AgentConfig):
         self._cfg = cfg
-        # In httpx 0.27+, 'proxy' is used for a single proxy string.
-        # proxy_map returns {'https://': url, 'http://': url} or None
         proxy_map = cfg.network.proxy_map
         proxy = proxy_map.get("https://") if proxy_map else None
         self._client = httpx.Client(
@@ -49,7 +48,7 @@ class Pusher:
     def close(self) -> None:
         self._client.close()
 
-    def push_studies(
+    def build_payload(
         self,
         studies: list[dict],
         is_backfill: bool = False,
@@ -58,17 +57,13 @@ class Pusher:
         command_id: Optional[str] = None,
         command_status: Optional[str] = None,
         command_error: Optional[str] = None,
-    ) -> Optional[dict]:
-        """
-        Push a batch of studies to the billing API.
-        Returns the parsed response body (may contain a remote command).
-        """
-        if not studies and not ref_data:
-            return None
-
+        message_id: Optional[str] = None,
+    ) -> dict:
+        """Construct the standard ingest payload."""
         payload = {
-            "payload_version": "1.0",
+            "payload_version": "1.2",
             "instance_id": self._cfg.instance_id,
+            "message_id": message_id or str(uuid.uuid4()),
             "pushed_at": _utcnow(),
             "is_backfill": is_backfill,
             "studies": studies,
@@ -83,18 +78,42 @@ class Pusher:
             payload["command_status"] = command_status
         if command_error:
             payload["command_error"] = command_error
+            
+        return payload
+
+    def push_studies(
+        self,
+        studies: list[dict],
+        is_backfill: bool = False,
+        backfill_progress: Optional[dict] = None,
+        ref_data: Optional[dict] = None,
+        command_id: Optional[str] = None,
+        command_status: Optional[str] = None,
+        command_error: Optional[str] = None,
+    ) -> Optional[dict]:
+        """
+        Push a batch of studies to the billing API.
+        Returns the parsed response body (may contain a remote command).
+        """
+        if not studies and not ref_data and not command_id:
+            return None
+
+        payload = self.build_payload(
+            studies=studies,
+            is_backfill=is_backfill,
+            backfill_progress=backfill_progress,
+            ref_data=ref_data,
+            command_id=command_id,
+            command_status=command_status,
+            command_error=command_error
+        )
 
         return self._send_with_retry(payload)
 
     def push_heartbeat(self) -> Optional[dict]:
         """Send a lightweight heartbeat so the billing app knows the agent is alive."""
-        payload = {
-            "payload_version": "1.0",
-            "instance_id": self._cfg.instance_id,
-            "pushed_at": _utcnow(),
-            "is_heartbeat": True,
-            "studies": [],
-        }
+        payload = self.build_payload(studies=[], is_heartbeat=True)
+        payload["is_heartbeat"] = True # Explicitly add since build_payload doesn't have it as arg
         try:
             return self._send(payload)
         except Exception as exc:
@@ -108,7 +127,7 @@ class Pusher:
                 return self._send(payload)
             except (httpx.TransportError, httpx.TimeoutException) as exc:
                 last_exc = exc
-                wait = 2 ** (attempt - 1)   # 1s, 2s, 4s, 8s, 16s
+                wait = 2 ** (attempt - 1)
                 logger.warning(
                     "Push attempt %d/%d failed (%s). Retrying in %ds.",
                     attempt, max_attempts, exc, wait,
@@ -127,7 +146,11 @@ class Pusher:
 
     def _send(self, payload: dict) -> dict:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        signature = _hmac_sign(body, self._cfg.api_key)
+        
+        timestamp = str(int(time.time()))
+        nonce = uuid.uuid4().hex
+        
+        signature = _hmac_sign(self._cfg.api_key, timestamp, nonce, body)
 
         url = f"{self._cfg.api_endpoint}/api/ingest/{self._cfg.instance_id}"
         response = self._client.post(
@@ -136,6 +159,8 @@ class Pusher:
             headers={
                 "Content-Type": "application/json; charset=utf-8",
                 "X-Signature": signature,
+                "X-Timestamp": timestamp,
+                "X-Nonce": nonce,
             },
         )
         response.raise_for_status()
@@ -147,8 +172,13 @@ class Pusher:
         return (datetime.now(timezone.utc) + delay).isoformat()
 
 
-def _hmac_sign(body: bytes, key: str) -> str:
-    return hmac.new(key.encode("utf-8"), body, hashlib.sha256).hexdigest()
+def _hmac_sign(key: str, timestamp: str, nonce: str, body: bytes) -> str:
+    """
+    Signs the request using HMAC-SHA256.
+    Base string = timestamp + nonce + body
+    """
+    base = timestamp.encode("utf-8") + nonce.encode("utf-8") + body
+    return hmac.new(key.encode("utf-8"), base, hashlib.sha256).hexdigest()
 
 
 def _utcnow() -> str:
