@@ -191,6 +191,7 @@ def fetch_backfill_batch(
         ORDER BY fr.ReportCompletedTime, fr.WorkflowID
         OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
     """
+    logger.info("Fetching backfill batch: from=%s, to=%s, offset=%d, size=%d", from_date, to_date, offset, batch_size)
     rows = conn.execute(sql, from_date, to_date, offset, batch_size).fetchall()
     return [
         {

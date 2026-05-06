@@ -55,7 +55,6 @@ def run_backfill(cfg: AgentConfig, state: StateDB) -> None:
             pusher.push_studies(
                 batch, 
                 is_backfill=True, 
-                backfill_progress=progress,
                 command_id=cmd_id
             )
             offset += len(batch)
@@ -183,12 +182,12 @@ def flush_retry_queue(cfg: AgentConfig, state: StateDB) -> None:
 
 # ── Heartbeat ─────────────────────────────────────────────────────────────────
 
-def send_heartbeat(cfg: AgentConfig) -> None:
+def send_heartbeat(cfg: AgentConfig, state: StateDB) -> None:
     pusher = Pusher(cfg)
     try:
         response = pusher.push_heartbeat()
         if response:
-            _handle_remote_command(response, cfg, None)
+            _handle_remote_command(response, cfg, state)
     finally:
         pusher.close()
 

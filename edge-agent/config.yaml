@@ -11,7 +11,7 @@ mssql:
   reporting_db: "RADSpaRISReportingDB"
 
 backfill:
-  enabled: true
+  enabled: false
   from_date: "2025-01-01"
   to_date: "2025-01-31"
   batch_size: 500

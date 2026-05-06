@@ -127,8 +127,8 @@ def run(ctx: click.Context) -> None:
     scheduler.add_job(
         runner.send_heartbeat,
         "interval",
-        minutes=10,
-        args=[cfg],
+        minutes=1,
+        args=[cfg, state],
         id="heartbeat",
         max_instances=1,
     )
